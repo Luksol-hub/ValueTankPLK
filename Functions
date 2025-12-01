@@ -1,39 +1,58 @@
-CREATE FUNCTION dbo.fn_Branza
+
+CREATE OR ALTER FUNCTION dbo.fn_Branza
 (
-    @ObszarKadrowy NVARCHAR(255)
+    @ObszarKadrowy          NVARCHAR(255),
+    @KodDzialalnosciPodst   NVARCHAR(50)
 )
 RETURNS NVARCHAR(50)
 AS
 BEGIN
-    DECLARE @result NVARCHAR(50);
-    DECLARE @val    NVARCHAR(255);
+    DECLARE @result NVARCHAR(50) = NULL;
+    DECLARE @obszar NVARCHAR(255);
+    DECLARE @kod    NVARCHAR(50);
 
-    -- 1. Obetnij spacje i zamień pusty string na NULL
-    SET @val = NULLIF(LTRIM(RTRIM(@ObszarKadrowy)), N'');
+    ----------------------------------------------------------------
+    -- 1. PRÓBA USTALENIA BRANŻY NA PODSTAWIE OBSZARU KADROWEGO
+    ----------------------------------------------------------------
+    SET @obszar = NULLIF(LTRIM(RTRIM(@ObszarKadrowy)), N'');
 
-    IF @val IS NULL
+    IF @obszar IS NOT NULL
     BEGIN
-        -- nic nie podano / same spacje
-        SET @result = NULL;      -- albo np. N'Brak danych'
-        RETURN @result;
+        SET @obszar = UPPER(@obszar);
+
+        SET @result =
+            CASE 
+                WHEN @obszar = N'CENTRALA'                    THEN N'Centrala'
+                WHEN @obszar = N'ID WARSZAWA'                 THEN N'ID'
+                WHEN @obszar = N'IG WARSZAWA'                 THEN N'IG'
+                WHEN @obszar IN (N'IM KRAKÓW', N'IM KRAKOW')  THEN N'IM'
+                WHEN @obszar = N'IN WARSZAWA'                 THEN N'IN'
+                WHEN @obszar = N'IO WARSZAWA'                 THEN N'IO'
+                WHEN @obszar = N'IR WARSZAWA'                 THEN N'IR'
+                ELSE NULL
+            END;
     END;
 
-    -- 2. Ujednolicenie wielkości liter
-    SET @val = UPPER(@val);
+    ----------------------------------------------------------------
+    -- 2. JEŚLI JESZCZE NIE USTALONO BRANŻY → SPRAWDŹ KOD DZIAŁALNOŚCI
+    ----------------------------------------------------------------
+    SET @kod = NULLIF(LTRIM(RTRIM(@KodDzialalnosciPodst)), N'');
 
-    -- 3. Mapowanie branży
-    SET @result =
-        CASE 
-            WHEN @val = N'CENTRALA'      THEN N'Centrala'
-            WHEN @val = N'ID WARSZAWA'   THEN N'ID'
-            WHEN @val = N'IG WARSZAWA'   THEN N'IG'
-            WHEN @val IN (N'IM KRAKÓW', N'IM KRAKOW') THEN N'IM'
-            WHEN @val = N'IN WARSZAWA'   THEN N'IN'
-            WHEN @val = N'IO WARSZAWA'   THEN N'IO'
-            WHEN @val = N'IR WARSZAWA'   THEN N'IR'
-            ELSE NULL   -- albo np. N'Inna branża'
-        END;
+    IF @result IS NULL AND @kod IS NOT NULL
+    BEGIN
+        SET @kod = REPLACE(@kod, ' ', '');
 
+        SET @result =
+            CASE 
+                WHEN @kod IN (N'0.3.7', N'0.1.2', N'0.1.2.1', N'0.2.2' ) THEN N'Administracja'
+                WHEN @kod = N'0.5.3'                                   THEN N'TODO'
+                ELSE NULL
+            END;
+    END;
+
+    ----------------------------------------------------------------
+    -- 3. JEŚLI NIC NIE PASUJE → ZWRACAMY NULL (BRAK BRANŻY)
+    ----------------------------------------------------------------
     RETURN @result;
 END;
 GO
