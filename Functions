@@ -1,3 +1,4 @@
+
 CREATE OR ALTER FUNCTION dbo.fn_Branza
 (
     @ObszarKadrowy          NVARCHAR(255),
@@ -104,6 +105,19 @@ BEGIN
         BEGIN
             SET @result = N'Inżynier ruchu';
         END
+        -- kody 2.5.x i 2.6.x → Automatyka i telekomunikacja
+        ELSE IF @kod IN (
+                N'2.5.1',
+                N'2.5.1.1',
+                N'2.5.1.2',
+                N'2.6.1',
+                N'2.6.2',
+                N'2.6.2.1',
+                N'2.6.3'
+        )
+        BEGIN
+            SET @result = N'Automatyka i telekomunikacja';
+        END
         -- kody 5.x → Działalność dodatkowa - 5
         ELSE IF @kod IN (
                 N'5.3.1.1', N'5.3.2.1',
@@ -159,14 +173,13 @@ BEGIN
             -- 3A: NAJPIERW ZESPOŁY DIAGNOSTYCZNE
             ----------------------------------------------------------------
             -- budynki i budo / bud bud obi inż
-			IF (
-				   (@p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOST%' AND @p6 LIKE N'%BUDYNK%' AND @p6 LIKE N'%BUDO%')
-				OR (@p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOST%' AND @p6 LIKE N'%BUD BUD OBI%')
-			   )
-			BEGIN
-				SET @result = N'Zespół diagnostyczny ds. budynków i budo';
-			END
-
+            IF (
+                   (@p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOST%' AND @p6 LIKE N'%BUDYNK%' AND @p6 LIKE N'%BUDO%')
+                OR (@p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOST%' AND @p6 LIKE N'%BUD BUD OBI%')
+               )
+            BEGIN
+                SET @result = N'Zespół diagnostyczny ds. budynków i budo';
+            END
             -- autom i telekom
             ELSE IF @p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOSTYCZNY%' AND @p6 LIKE N'%AUTOM%' AND @p6 LIKE N'%TELEKOM%'
             BEGIN
@@ -233,8 +246,380 @@ BEGIN
         END
     END;
 
-
     RETURN @result;
 END;
 GO
 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+CREATE OR ALTER FUNCTION dbo.fn_StanowiskoBI
+(
+    @Branza                 NVARCHAR(50),
+    @ObszarKadrowy          NVARCHAR(255),
+    @KodDzialalnosciPodst   NVARCHAR(50),
+    @Poziom3DlugaNazwa      NVARCHAR(255),
+    @Poziom6DlugaNazwa      NVARCHAR(255),
+    @StanDlugaNazwa         NVARCHAR(255),     -- STANZUZPUCHW_DLUGA_NAZWA28
+    @Stanowisko             NVARCHAR(255)      -- STANOWISKO27
+)
+RETURNS NVARCHAR(100)
+AS
+BEGIN
+    DECLARE @result         NVARCHAR(100) = NULL;
+    DECLARE @kod            NVARCHAR(50);
+    DECLARE @stanUpper      NVARCHAR(255);
+    DECLARE @p6             NVARCHAR(255);
+    DECLARE @stanOpisUpper  NVARCHAR(255);
+
+    ----------------------------------------------------------------
+    -- ZASADA OGÓLNA: nie przypisujemy stanowiska, jeśli nie ma BRANŻY
+    ----------------------------------------------------------------
+    IF @Branza IS NULL
+        RETURN NULL;
+
+    ----------------------------------------------------------------
+    -- Normalizacja danych wejściowych
+    ----------------------------------------------------------------
+    SET @kod           = NULLIF(LTRIM(RTRIM(@KodDzialalnosciPodst)), N'');
+    SET @stanUpper     = NULLIF(LTRIM(RTRIM(@Stanowisko)), N'');
+    SET @p6            = NULLIF(LTRIM(RTRIM(@Poziom6DlugaNazwa)), N'');
+    SET @stanOpisUpper = NULLIF(LTRIM(RTRIM(@StanDlugaNazwa)), N'');
+
+    IF @kod IS NOT NULL
+        SET @kod = REPLACE(@kod, ' ', '');
+
+    IF @stanUpper IS NOT NULL
+        SET @stanUpper = UPPER(@stanUpper) COLLATE Latin1_General_CI_AI;
+
+    IF @p6 IS NOT NULL
+    BEGIN
+        SET @p6 = REPLACE(@p6, '_', ' ');
+        SET @p6 = UPPER(@p6) COLLATE Latin1_General_CI_AI;
+    END
+
+    IF @stanOpisUpper IS NOT NULL
+        SET @stanOpisUpper = UPPER(@stanOpisUpper) COLLATE Latin1_General_CI_AI;
+
+    ----------------------------------------------------------------
+    -- BLOK 1: Administracja, KOD 0.3.7 → ds. administracji ...
+    ----------------------------------------------------------------
+    IF @result IS NULL
+       AND @Branza = N'Administracja'
+       AND @kod = N'0.3.7'
+       AND @stanUpper IS NOT NULL
+    BEGIN
+        IF @stanUpper LIKE N'%DS.ADMINISTRACJI LINIOWEJ%'
+            SET @result = N'ds.administracji liniowej';
+        ELSE IF @stanUpper LIKE N'%DS.ADMINISTRACJI TECHNICZNEJ%'
+            SET @result = N'ds.administracji technicznej';
+    END;
+
+    ----------------------------------------------------------------
+    -- BLOK 2: Administracja, KOD 0.2.2 → zawiadowca ds. ...
+    ----------------------------------------------------------------
+    IF @result IS NULL
+       AND @Branza = N'Administracja'
+       AND @kod = N'0.2.2'
+       AND @stanUpper IS NOT NULL
+    BEGIN
+        -- zawiadowca ds.drogowych
+        IF @stanUpper LIKE N'%ZAWIADOWCA%DS%DROGOWYCH%'
+            SET @result = N'zawiadowca ds.drogowych';
+
+        -- zawiadowca ds.automatyki i telekomunika
+        ELSE IF @stanUpper LIKE N'%ZAWIADOWCA%DS%AUTOMATYKI%TELEKOMUNIKA%'
+            SET @result = N'zawiadowca ds.automatyki i telekomunika';
+
+        -- zawiadowca ds.inżynierii ruchu
+        ELSE IF @stanUpper LIKE N'%ZAWIADOWCA%DS%INZYNIERII%RUCHU%'
+            SET @result = N'zawiadowca ds.inżynierii ruchu';
+    END;
+
+    ----------------------------------------------------------------
+    -- BLOK 3: Administracja / Biuro Zakładu, 0.5.3 → związkowcy
+    ----------------------------------------------------------------
+    IF @result IS NULL
+       AND @kod = N'0.5.3'
+       AND @Branza IN (N'Administracja', N'Biuro Zakładu')
+    BEGIN
+        SET @result = N'związkowcy';
+    END;
+
+    ----------------------------------------------------------------
+    -- BLOK 4: Biuro Zakładu, 0.1.1 → kierownictwo
+    ----------------------------------------------------------------
+    IF @result IS NULL
+       AND @Branza = N'Biuro Zakładu'
+       AND @kod = N'0.1.1'
+    BEGIN
+        SET @result = N'kierownictwo';
+    END;
+
+    ----------------------------------------------------------------
+    -- BLOK 5: Biuro Zakładu – komórki ds. ... (po POZIOM_6)
+    ----------------------------------------------------------------
+    IF @result IS NULL
+       AND @Branza = N'Biuro Zakładu'
+       AND @p6 IS NOT NULL
+    BEGIN
+        -- komórka ds. automatyki i telekomunikacji
+        IF @p6 LIKE N'%DZIAL%AUTOMAT%' AND @p6 LIKE N'%TEL%'
+            SET @result = N'komórka ds. automatyki i telekomunikacji';
+
+        -- komórka ds. bhp
+        ELSE IF @p6 LIKE N'%SJSP%' AND @p6 LIKE N'%SWSP%' AND @p6 LIKE N'%BHP%'
+            SET @result = N'komórka ds. bhp';
+
+        -- komórka ds. dróg kolejowych, ochrony środowiska i szkód górniczych
+        ELSE IF @p6 LIKE N'%DZIAL%DROG%' AND @p6 LIKE N'%KOLEJ%'
+            SET @result = N'komórka ds. dróg kolejowych, ochrony środowiska i szkód górniczych';
+
+        -- komórka ds. ekonomicznych
+        ELSE IF @p6 LIKE N'%DZIAL%EKONOM%'
+            SET @result = N'komórka ds. ekonomicznych';
+
+        -- komórka ds. eksploatacji i infrastruktury pasażerskiej
+        ELSE IF @p6 LIKE N'%DZIAL%EKSPLOAT%' OR @p6 LIKE N'%DZIAL%INFRASTRUKT%'
+            SET @result = N'komórka ds. eksploatacji i infrastruktury pasażerskiej';
+
+        -- komórka ds. energetyki
+        ELSE IF @p6 LIKE N'%DZIAL%ENERGET%'
+            SET @result = N'komórka ds. energetyki';
+
+        -- komórka ds. gospodarki materiałowej i zamówień
+        ELSE IF @p6 LIKE N'%GOSPODARKI%MATERIAL%' OR @p6 LIKE N'%GOSP%MATER%'
+            SET @result = N'komórka ds. gospodarki materiałowej i zamówień';
+
+        -- komórka ds. Informatyki użytkowej
+        ELSE IF @p6 LIKE N'%SWSP%' AND @p6 LIKE N'%INFORMAT%'
+            SET @result = N'komórka ds. Informatyki użytkowej';
+
+        -- komórka ds. Inwestycji
+        ELSE IF @p6 LIKE N'%DZIAL%INWESTYC%'
+            SET @result = N'komórka ds. Inwestycji';
+
+        -- komórka ds. kontroli i Instruktazu
+        ELSE IF @p6 LIKE N'%DZIAL%KONTROL%' AND @p6 LIKE N'%INSTRUKT%'
+            SET @result = N'komórka ds. kontroli i Instruktazu';
+
+        -- komórka ds. ochrony informacji, obronnych i kryzysowych
+        ELSE IF (@p6 LIKE N'%SISP%' OR @p6 LIKE N'%SWSP%') AND @p6 LIKE N'%OCHRONA%'
+            SET @result = N'komórka ds. ochrony informacji, obronnych i kryzysowych';
+
+        -- komórka ds. organizacyjno-prawnych i archiwizacji
+        ELSE IF @p6 LIKE N'%DZIAL%ORGANIZ%' OR @p6 LIKE N'%ORG-PRAW%'
+            SET @result = N'komórka ds. organizacyjno-prawnych i archiwizacji';
+
+        -- komórka ds. pracowniczych
+        ELSE IF @p6 LIKE N'%DZIAL%SPRAW%PRAC%'
+            SET @result = N'komórka ds. pracowniczych';
+
+        -- komórka ds. rachunkowości i finansów
+        ELSE IF @p6 LIKE N'%DZIAL%FINANS%' OR @p6 LIKE N'%DZIAL%RACHUNKOW%'
+            SET @result = N'komórka ds. rachunkowości i finansów';
+
+        -- komórka ds. zaplecza tech. i ochrony ppoż
+        ELSE IF @p6 LIKE N'%DZIAL%ZAPLECZ%'
+            SET @result = N'komórka ds. zaplecza tech. i ochrony ppoż';
+
+        -- komórka ds. zarządzania Dworcem Łódź Fabryczna
+        ELSE IF @p6 LIKE N'%DZIAL%ZARZADZANIA%DWORC%'
+            SET @result = N'komórka ds. zarządzania Dworcem Łódź Fabryczna';
+    END;
+
+    ----------------------------------------------------------------
+    -- BLOK 6: Droga kolejowa – Kierownik SPRT / utrzymanie
+    -- korzysta z opisu stanowiska (@StanDlugaNazwa), a jeśli brak,
+    -- spada do STANOWISKO27
+    ----------------------------------------------------------------
+    IF @result IS NULL
+       AND @Branza = N'Droga kolejowa'
+       AND @kod IN (
+            N'2.1.1',  N'2.1.1.1', N'2.1.1.2',
+            N'2.1.2',  N'2.1.2.1',
+            N'2.1.3',  N'2.1.3.1',
+            N'2.1.4',  N'2.1.4.1', N'2.1.4.2',
+            N'2.2.1',
+            N'2.3.1',  N'2.3.1.1', N'2.3.1.2'
+       )
+       AND ( @stanOpisUpper IS NOT NULL OR @stanUpper IS NOT NULL )
+    BEGIN
+        DECLARE @tekstUpper NVARCHAR(255);
+
+        -- priorytet: opis stanowiska, jeśli jest; inaczej nazwa stanowiska
+        SET @tekstUpper = COALESCE(@stanOpisUpper, @stanUpper);
+
+        -- Kierownik specjalnego pociągu ratowniczo–technicznego (SPRT)
+        IF     @tekstUpper LIKE N'%KIEROWNIK%'
+           AND @tekstUpper LIKE N'%SPECJALN%'
+           AND @tekstUpper LIKE N'%POCIAG%'
+           AND @tekstUpper LIKE N'%RATOWN%'
+           AND @tekstUpper LIKE N'%TECH%'
+        BEGIN
+            SET @result = N'Kierownik SPRT';
+        END
+        ELSE
+        BEGIN
+            SET @result = N'utrzymanie';
+        END
+    END;
+
+    ----------------------------------------------------------------
+    -- BLOK 7: Automatyka i telekomunikacja – utrzymanie
+    ----------------------------------------------------------------
+    IF @result IS NULL
+       AND @Branza = N'Automatyka i telekomunikacja'
+       AND @kod IN (
+            N'2.5.1',
+            N'2.5.1.1',
+            N'2.5.1.2',
+            N'2.6.1',
+            N'2.6.2',
+            N'2.6.2.1',
+            N'2.6.3'
+       )
+    BEGIN
+        SET @result = N'utrzymanie';
+    END;
+
+    ----------------------------------------------------------------
+    -- BLOK 8: Działalność dodatkowa - 5 → szczegółowe utrzymanie
+    ----------------------------------------------------------------
+    IF @result IS NULL
+       AND @Branza = N'Działalność dodatkowa - 5'
+       AND @kod IS NOT NULL
+    BEGIN
+        -- 5.3.1.1; 5.3.2.1 → utrzymania i obsługi pozost.obiekt.infrastr.
+        IF @kod IN (N'5.3.1.1', N'5.3.2.1')
+        BEGIN
+            SET @result = N'utrzymania i obsługi pozost.obiekt.infrastr.';
+        END
+        -- 5.1.1; 5.1.1.1; 5.1.1.2 → utrzymania i obsługi środków transportu samoch.
+        ELSE IF @kod IN (N'5.1.1', N'5.1.1.1', N'5.1.1.2')
+        BEGIN
+            SET @result = N'utrzymania i obsługi środków transportu samoch.';
+        END
+        -- 5.1.2; 5.1.2.1 → utrzymania i obsługi urządzeń, warsztatów...
+        ELSE IF @kod IN (N'5.1.2', N'5.1.2.1')
+        BEGIN
+            SET @result = N'utrzymania i obsługi urządzeń, warsztatów i obsługi maszyn, warsztatów specjalistycznych';
+        END
+        -- 5.2.1; 5.2.1.1 → utrzymanie budynków
+        ELSE IF @kod IN (N'5.2.1', N'5.2.1.1')
+        BEGIN
+            SET @result = N'utrzymanie budynków';
+        END
+    END;
+
+    ----------------------------------------------------------------
+    -- BLOK 9: Działalność dodatkowa - 6
+    ----------------------------------------------------------------
+    IF @result IS NULL
+       AND @Branza = N'Działalność dodatkowa - 6'
+       AND @kod IS NOT NULL
+    BEGIN
+        -- 6.2.1; 6.2.2 → obsługa gospodarczo-zaopatrzeniowa
+        IF @kod IN (N'6.2.1', N'6.2.2')
+        BEGIN
+            SET @result = N'obsługa gospodarczo-zaopatrzeniowa';
+        END
+
+        -- 6.1.1; 6.1.2; 6.1.9: wyjątek dla "operator informacji pasażerskiej"
+        ELSE IF @kod IN (N'6.1.1', N'6.1.2', N'6.1.9', N'6.1.9.')
+        BEGIN
+            IF @stanOpisUpper IS NOT NULL
+               AND @stanOpisUpper LIKE N'%OPERATOR%'
+               AND @stanOpisUpper LIKE N'%INFORMACJI%'
+               AND @stanOpisUpper LIKE N'%PASAZERSK%'
+            BEGIN
+                SET @result = N'operator SDIP';
+            END
+            ELSE
+            BEGIN
+                SET @result = N'obsługi informacyjnej';
+            END
+        END
+
+        -- pozostałe kody z Działalność dodatkowa - 6 → obsługi informacyjnej
+        ELSE
+        BEGIN
+            SET @result = N'obsługi informacyjnej';
+        END
+    END;
+
+	    ----------------------------------------------------------------
+    -- BLOK: Energetyka – utrzymanie
+    ----------------------------------------------------------------
+    IF @result IS NULL
+       AND @Branza = N'Energetyka'
+       AND @kod IN (
+            N'2.4.1',
+            N'2.4.1.1',
+            N'2.4.4',
+            N'2.4.4.1',
+            N'2.4.4.4'
+       )
+    BEGIN
+        SET @result = N'utrzymanie';
+    END;
+
+    ----------------------------------------------------------------
+    -- BLOK: Inżynier ruchu – klasyczne stanowiska 2.7.x
+    ----------------------------------------------------------------
+    IF @result IS NULL
+       AND @Branza = N'Inżynier ruchu'
+       AND @kod IS NOT NULL
+    BEGIN
+        IF @kod = N'2.7.2'
+        BEGIN
+            SET @result = N'dróżnik przejazdowy';
+        END
+        ELSE IF @kod IN (N'2.7.3', N'2.7.3.1')
+        BEGIN
+            SET @result = N'dyspozytor';
+        END
+        ELSE IF @kod = N'2.7.1.1'
+        BEGIN
+            SET @result = N'dyżurny ruchu';
+        END
+        ELSE IF @kod = N'2.7.1.2'
+        BEGIN
+            SET @result = N'nastawniczy';
+        END
+        ELSE IF @kod = N'2.7.1.3'
+        BEGIN
+            SET @result = N'zwrotniczy';
+        END
+    END;
+
+----------------------------------------------------------------
+-- BLOK 6: Zespoły diagnostyczne – główny inżynier / zespół
+----------------------------------------------------------------
+IF @result IS NULL
+   AND @Branza IN (
+        N'Zespół diagnostyczny ds. autom i telekom',
+        N'Zespół diagnostyczny ds. budynków i budo',
+        N'Zespół diagnostyczny ds. ele tra i nietr',
+        N'Zespół diagnostyczny ds. naw i podtorza',
+        N'Zespół diagnostyczny ds. obiektów inżyni'
+   )
+   AND @p6 IS NOT NULL
+BEGIN
+    -- główny inżynier
+    IF @p6 LIKE N'%GLOWNY%' AND @p6 LIKE N'%INZYNIER%'
+    BEGIN
+        SET @result = N'główny inżynier';
+    END
+    -- „zwykły” członek zespołu → nazwa zespołu jako stanowisko
+    ELSE
+    BEGIN
+        SET @result = @Branza;
+    END
+END;
+
+
+    RETURN @result;
+END;
+GO
