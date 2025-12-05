@@ -1,13 +1,17 @@
 CREATE OR ALTER VIEW dbo.BI_DICT_STANZATRUDNIENIANADZIEN1
 AS
 SELECT
-      dbo.fn_Branza(
-            t.[OBSZAR_KADROWY9],
-            t.[KOD_DZIALALNOSCI_PODST30],
-            t.[POZIOM_3_DLUGA_NAZWA48],
-            t.[POZIOM_6_DLUGA_NAZWA57],
-            t.[STANZUZPUCHW_DLUGA_NAZWA28]
-      ) AS [BRANZA]
+      b.BRANZA
+    , dbo.fn_StanowiskoBI(
+          b.BRANZA,
+          t.[OBSZAR_KADROWY9],
+          t.[KOD_DZIALALNOSCI_PODST30],
+          t.[POZIOM_3_DLUGA_NAZWA48],
+          t.[POZIOM_6_DLUGA_NAZWA57],
+          t.[STANZUZPUCHW_DLUGA_NAZWA28],
+          t.[STANOWISKO27]
+      ) AS STANOWISKO_BI
+
     , t.[record_id]
     , t.[NR_OSOB0]
     , t.[NUMER_OSOBOWY1]
@@ -89,4 +93,14 @@ SELECT
     , t.[last_modified_by]
     , t.[group_code]
     , t.[STAN_NA_DZIEN72]
-FROM dbo.DICT_STANZATRUDNIENIANADZIEN1 t;
+FROM dbo.DICT_STANZATRUDNIENIANADZIEN1 t
+CROSS APPLY (
+    SELECT dbo.fn_Branza(
+               t.[OBSZAR_KADROWY9],
+               t.[KOD_DZIALALNOSCI_PODST30],
+               t.[POZIOM_3_DLUGA_NAZWA48],
+               t.[POZIOM_6_DLUGA_NAZWA57],
+               t.[STANZUZPUCHW_DLUGA_NAZWA28]
+           ) AS BRANZA
+) AS b;
+GO
