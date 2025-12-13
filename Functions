@@ -18,42 +18,124 @@ BEGIN
     DECLARE @stanNazwa   NVARCHAR(255);
 
     ----------------------------------------------------------------
+    -- WSTĘPNE PRZETWORZENIE KODU DZIAŁALNOŚCI
+    ----------------------------------------------------------------
+    SET @kod = NULLIF(LTRIM(RTRIM(@KodDzialalnosciPodst)), N'');
+    IF @kod IS NOT NULL
+        SET @kod = REPLACE(@kod, N' ', N'');
+
+    ----------------------------------------------------------------
     -- BLOK 1 – NAJWYŻSZY PRIORYTET: OBSZAR KADROWY
     ----------------------------------------------------------------
     SET @obszar = NULLIF(LTRIM(RTRIM(@ObszarKadrowy)), N'');
 
     IF @obszar IS NOT NULL AND @result IS NULL
     BEGIN
-        SET @obszar = UPPER(@obszar);
+        -- normalizacja separatorów
+        SET @obszar = REPLACE(@obszar, N'_', N' ');
+        SET @obszar = REPLACE(@obszar, N'-', N' ');
+        SET @obszar = REPLACE(@obszar, N'/', N' ');
+
+        -- normalizacja wielkości liter + ignorowanie akcentów
+        SET @obszar = UPPER(@obszar) COLLATE Latin1_General_CI_AI;
+
+        WHILE CHARINDEX(N'  ', @obszar) > 0
+            SET @obszar = REPLACE(@obszar, N'  ', N' ');
 
         SET @result =
-            CASE 
-                WHEN @obszar = N'CENTRALA'                    THEN N'Centrala'
-                WHEN @obszar = N'ID WARSZAWA'                 THEN N'ID'
-                WHEN @obszar = N'IG WARSZAWA'                 THEN N'IG'
-                WHEN @obszar IN (N'IM KRAKÓW', N'IM KRAKOW')  THEN N'IM'
-                WHEN @obszar = N'IN WARSZAWA'                 THEN N'IN'
-                WHEN @obszar = N'IO WARSZAWA'                 THEN N'IO'
-                WHEN @obszar = N'IR WARSZAWA'                 THEN N'IR'
+            CASE
+                WHEN @obszar LIKE N'%CENTRALA%' THEN N'Centrala'
+
+                WHEN (@obszar LIKE N'%ID%' AND @obszar LIKE N'%WARSZAW%') OR @obszar = N'ID' THEN N'ID'
+                WHEN (@obszar LIKE N'%IG%' AND @obszar LIKE N'%WARSZAW%') OR @obszar = N'IG' THEN N'IG'
+                WHEN (@obszar LIKE N'%IN%' AND @obszar LIKE N'%WARSZAW%') OR @obszar = N'IN' THEN N'IN'
+                WHEN (@obszar LIKE N'%IO%' AND @obszar LIKE N'%WARSZAW%') OR @obszar = N'IO' THEN N'IO'
+                WHEN (@obszar LIKE N'%IR%' AND @obszar LIKE N'%WARSZAW%') OR @obszar = N'IR' THEN N'IR'
+
+                WHEN (
+                        @obszar LIKE N'%IM%'
+                        AND ( @obszar LIKE N'%KRAKOW%' OR @obszar LIKE N'%KRAKÓW%' )
+                     )
+                     OR @obszar = N'IM'
+                THEN N'IM'
+
                 ELSE NULL
             END;
     END;
 
     ----------------------------------------------------------------
+    -- SPECJALNY PRIORYTET: 0.1.1 → "Biuro Zakładu"
+    -- ale TYLKO jeśli nie dało się ustalić branży z obszaru kadrowego
+    ----------------------------------------------------------------
+    IF @result IS NULL AND @kod = N'0.1.1'
+        RETURN N'Biuro Zakładu';
+
+    ----------------------------------------------------------------
+    -- BLOK 2A – PRIORYTET: ZESPOŁY DIAGNOSTYCZNE z POZIOMU 6
+    -- (ma wygrać z klasyfikacją po kodach 2.x/5.x/6.x)
+    ----------------------------------------------------------------
+    IF @result IS NULL
+    BEGIN
+        SET @p6 = NULLIF(LTRIM(RTRIM(@Poziom6DlugaNazwa)), N'');
+
+        IF @p6 IS NOT NULL
+        BEGIN
+            -- normalizacja
+            SET @p6 = REPLACE(@p6, N'_', N' ');
+            SET @p6 = UPPER(@p6) COLLATE Latin1_General_CI_AI;
+
+            -- NBSP/tab/CR/LF -> spacja (częsty powód "niewidocznych" rozjazdów)
+            SET @p6 = REPLACE(@p6, NCHAR(160), N' ');
+            SET @p6 = REPLACE(@p6, CHAR(9),   N' ');
+            SET @p6 = REPLACE(@p6, CHAR(13),  N' ');
+            SET @p6 = REPLACE(@p6, CHAR(10),  N' ');
+
+            WHILE CHARINDEX(N'  ', @p6) > 0
+                SET @p6 = REPLACE(@p6, N'  ', N' ');
+
+            -- Zespoły diagnostyczne
+            IF (
+                   (@p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOST%' AND @p6 LIKE N'%BUDYNK%' AND @p6 LIKE N'%BUDO%')
+                OR (@p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOST%' AND @p6 LIKE N'%BUD BUD OBI%')
+               )
+            BEGIN
+                SET @result = N'Zespół diagnostyczny ds. budynków i budo';
+            END
+            ELSE IF @p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOST%' AND @p6 LIKE N'%AUTOM%' AND @p6 LIKE N'%TELEKOM%'
+            BEGIN
+                SET @result = N'Zespół diagnostyczny ds. autom i telekom';
+            END
+            ELSE IF @p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOST%' AND @p6 LIKE N'%ELE%' AND @p6 LIKE N'%NIETR%'
+            BEGIN
+                SET @result = N'Zespół diagnostyczny ds. ele tra i nietr';
+            END
+			ELSE IF (
+					   (@p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOST%' AND @p6 LIKE N'%NAW%' AND @p6 LIKE N'%PODTORZ%')
+					OR (@p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOST%' AND @p6 LIKE N'%NAW%BUD%OBI%IN%')
+					OR (@p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOST%' AND @p6 LIKE N'%NAW%POD%OBI%IN%')
+				)
+				BEGIN
+					SET @result = N'Zespół diagnostyczny ds. naw i podtorza';
+				END
+
+            ELSE IF @p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOST%' AND @p6 LIKE N'%OBIEKT%'
+            BEGIN
+                SET @result = N'Zespół diagnostyczny ds. obiektów inżyni';
+            END
+        END
+    END
+
+    ----------------------------------------------------------------
     -- BLOK 2 – KOD DZIAŁALNOŚCI PODST. + POZIOM 3 + STANOWISKO
     ----------------------------------------------------------------
-    SET @kod = NULLIF(LTRIM(RTRIM(@KodDzialalnosciPodst)), N'');
-
     IF @result IS NULL AND @kod IS NOT NULL
     BEGIN
-        SET @kod = REPLACE(@kod, ' ', '');
-
         -- Administracja po kodzie
         IF @kod IN (N'0.3.7', N'0.1.2', N'0.1.2.1', N'0.2.2')
         BEGIN
             SET @result = N'Administracja';
         END
-        -- 0.5.3 + poziom 3
+        -- 0.5.3 + POZIOM 3
         ELSE IF @kod = N'0.5.3'
         BEGIN
             SET @poziom3 = NULLIF(LTRIM(RTRIM(@Poziom3DlugaNazwa)), N'');
@@ -68,12 +150,7 @@ BEGIN
                     SET @result = N'Biuro Zakładu';
             END
         END
-        -- 0.1.1 → Biuro Zakładu
-        ELSE IF @kod = N'0.1.1'
-        BEGIN
-            SET @result = N'Biuro Zakładu';
-        END
-        -- kody 2.1–2.3 → Droga kolejowa
+        -- 2.1–2.3 → Droga kolejowa
         ELSE IF @kod IN (
                 N'2.1.1', N'2.1.1.1', N'2.1.1.2',
                 N'2.1.2', N'2.1.2.1',
@@ -85,7 +162,7 @@ BEGIN
         BEGIN
             SET @result = N'Droga kolejowa';
         END
-        -- kody 2.4.x → Energetyka
+        -- 2.4.x → Energetyka
         ELSE IF @kod IN (
                 N'2.4.1',
                 N'2.4.1.1',
@@ -96,21 +173,22 @@ BEGIN
         BEGIN
             SET @result = N'Energetyka';
         END
-        -- kody 2.7.x → Inżynier ruchu
+        -- 2.7.x → Inżynieria ruchu
         ELSE IF @kod IN (
                 N'2.7.2',
                 N'2.7.3', N'2.7.3.1',
                 N'2.7.1.1', N'2.7.1.2', N'2.7.1.3'
         )
         BEGIN
-            SET @result = N'Inżynier ruchu';
+            SET @result = N'Inżynieria ruchu';
         END
-        -- kody 2.5.x i 2.6.x → Automatyka i telekomunikacja
+        -- 2.5.x i 2.6.x → Automatyka i telekomunikacja
         ELSE IF @kod IN (
                 N'2.5.1',
                 N'2.5.1.1',
                 N'2.5.1.2',
                 N'2.6.1',
+			    N'2.6.1.1',   --O
                 N'2.6.2',
                 N'2.6.2.1',
                 N'2.6.3'
@@ -118,7 +196,7 @@ BEGIN
         BEGIN
             SET @result = N'Automatyka i telekomunikacja';
         END
-        -- kody 5.x → Działalność dodatkowa - 5
+        -- 5.x → Działalność dodatkowa - 5
         ELSE IF @kod IN (
                 N'5.3.1.1', N'5.3.2.1',
                 N'5.1.1',   N'5.1.1.1', N'5.1.1.2',
@@ -128,7 +206,7 @@ BEGIN
         BEGIN
             SET @result = N'Działalność dodatkowa - 5';
         END
-        -- kody 6.x (bez 6.7.6.4) → Działalność dodatkowa - 6
+        -- 6.x (bez 6.7.6.4) → Działalność dodatkowa - 6
         ELSE IF @kod IN (
                 N'6.2.1', N'6.2.2',
                 N'6.1.1', N'6.1.2', N'6.1.9', N'6.1.9.',
@@ -147,10 +225,8 @@ BEGIN
             BEGIN
                 SET @stanNazwa = UPPER(@stanNazwa) COLLATE Latin1_General_CI_AI;
 
-                -- priorytet 1: dyspozytor → Inżynier ruchu
                 IF @stanNazwa LIKE N'%DYSP%OZYTOR%'
-                    SET @result = N'Inżynier ruchu';
-                -- priorytet 2: obsługa gospodarczo-zaopatrzeniowa → Działalność dodatkowa - 6
+                    SET @result = N'Inżynieria ruchu';
                 ELSE IF @stanNazwa LIKE N'%OBSLUGA%GOSPODARCZO%ZAOPAT%'
                     SET @result = N'Działalność dodatkowa - 6';
             END
@@ -158,7 +234,8 @@ BEGIN
     END;
 
     ----------------------------------------------------------------
-    -- BLOK 3 – POZIOM 6: ZESPOŁY DIAGNOSTYCZNE + Biuro Zakładu
+    -- BLOK 3 – POZIOM 6: tylko "Biuro Zakładu" (fallback po P6)
+    -- (zespoły diagnostyczne są już obsłużone w BLOK 2A)
     ----------------------------------------------------------------
     IF @result IS NULL
     BEGIN
@@ -166,89 +243,76 @@ BEGIN
 
         IF @p6 IS NOT NULL
         BEGIN
-            SET @p6 = REPLACE(@p6, '_', ' ');
+            SET @p6 = REPLACE(@p6, N'_', N' ');
             SET @p6 = UPPER(@p6) COLLATE Latin1_General_CI_AI;
 
-            ----------------------------------------------------------------
-            -- 3A: NAJPIERW ZESPOŁY DIAGNOSTYCZNE
-            ----------------------------------------------------------------
-            -- budynki i budo / bud bud obi inż
-            IF (
-                   (@p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOST%' AND @p6 LIKE N'%BUDYNK%' AND @p6 LIKE N'%BUDO%')
-                OR (@p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOST%' AND @p6 LIKE N'%BUD BUD OBI%')
-               )
-            BEGIN
-                SET @result = N'Zespół diagnostyczny ds. budynków i budo';
-            END
-            -- autom i telekom
-            ELSE IF @p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOSTYCZNY%' AND @p6 LIKE N'%AUTOM%' AND @p6 LIKE N'%TELEKOM%'
-            BEGIN
-                SET @result = N'Zespół diagnostyczny ds. autom i telekom';
-            END
-            -- ele tra i nietr
-            ELSE IF @p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOSTYCZNY%' AND @p6 LIKE N'%ELE%' AND @p6 LIKE N'%NIETR%'
-            BEGIN
-                SET @result = N'Zespół diagnostyczny ds. ele tra i nietr';
-            END
-            -- naw i podtorza – różne warianty
-            ELSE IF (
-                   (@p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOSTYCZNY%' AND @p6 LIKE N'%NAW%' AND @p6 LIKE N'%PODTORZ%')
-                OR (@p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOSTYCZNY%' AND @p6 LIKE N'%NAW BUD OBI INZ%')
-                OR (@p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOSTYCZNY%' AND @p6 LIKE N'%NAW POD OBI INZ%')
-            )
-            BEGIN
-                SET @result = N'Zespół diagnostyczny ds. naw i podtorza';
-            END
-            -- obiektów inżyni – uproszczony wzorzec
-            ELSE IF @p6 LIKE N'%ZESP%' AND @p6 LIKE N'%DIAGNOSTYCZNY%' AND @p6 LIKE N'%OBIEKT%'
-            BEGIN
-                SET @result = N'Zespół diagnostyczny ds. obiektów inżyni';
-            END
+            -- NBSP/tab/CR/LF -> spacja + kompresja spacji
+            SET @p6 = REPLACE(@p6, NCHAR(160), N' ');
+            SET @p6 = REPLACE(@p6, CHAR(9),   N' ');
+            SET @p6 = REPLACE(@p6, CHAR(13),  N' ');
+            SET @p6 = REPLACE(@p6, CHAR(10),  N' ');
 
-            ----------------------------------------------------------------
-            -- 3B – jeśli dalej NULL, dopiero wtedy "Biuro Zakładu"
-            ----------------------------------------------------------------
-            IF @result IS NULL
-            BEGIN
-                IF @p6 LIKE N'%DZIAL%AUTOMAT%' AND @p6 LIKE N'%TEL%'
-                    SET @result = N'Biuro Zakładu';
-                ELSE IF @p6 LIKE N'%PSJSP%' AND @p6 LIKE N'%SWSP%' AND @p6 LIKE N'%BHP%'
-                    SET @result = N'Biuro Zakładu';
-                ELSE IF @p6 LIKE N'%DZIAL%DROG%' AND @p6 LIKE N'%KOLEJ%'
-                    SET @result = N'Biuro Zakładu';
-                ELSE IF @p6 LIKE N'%DZIAL%EKONOM%'
-                    SET @result = N'Biuro Zakładu';
-                ELSE IF @p6 LIKE N'%DZIAL%EKSPLOAT%' OR @p6 LIKE N'%DZIAL%INFRASTRUKT%'
-                    SET @result = N'Biuro Zakładu';
-                ELSE IF @p6 LIKE N'%DZIAL%ENERGET%'
-                    SET @result = N'Biuro Zakładu';
-                ELSE IF @p6 LIKE N'%GOSPODARKI%MATERIAL%' OR @p6 LIKE N'%GOSP%MATER%'
-                    SET @result = N'Biuro Zakładu';
-                ELSE IF @p6 LIKE N'%SWSP%' AND @p6 LIKE N'%INFORMAT%'
-                    SET @result = N'Biuro Zakładu';
-                ELSE IF @p6 LIKE N'%DZIAL%INWESTYC%'
-                    SET @result = N'Biuro Zakładu';
-                ELSE IF @p6 LIKE N'%DZIAL%KONTROL%' AND @p6 LIKE N'%INSTRUKT%'
-                    SET @result = N'Biuro Zakładu';
-                ELSE IF (@p6 LIKE N'%SISP%' OR @p6 LIKE N'%SWSP%') AND @p6 LIKE N'%OCHRONA%'
-                    SET @result = N'Biuro Zakładu';
-                ELSE IF @p6 LIKE N'%DZIAL%ORGANIZ%' OR @p6 LIKE N'%ORG-PRAW%'
-                    SET @result = N'Biuro Zakładu';
-                ELSE IF @p6 LIKE N'%DZIAL%SPRAW%PRAC%'
-                    SET @result = N'Biuro Zakładu';
-                ELSE IF @p6 LIKE N'%DZIAL%FINANS%' OR @p6 LIKE N'%DZIAL%RACHUNKOW%'
-                    SET @result = N'Biuro Zakładu';
-                ELSE IF @p6 LIKE N'%DZIAL%ZAPLECZ%'
-                    SET @result = N'Biuro Zakładu';
-                ELSE IF @p6 LIKE N'%DZIAL%ZARZADZANIA%DWORC%'
-                    SET @result = N'Biuro Zakładu';
-            END
+            WHILE CHARINDEX(N'  ', @p6) > 0
+                SET @p6 = REPLACE(@p6, N'  ', N' ');
+
+            IF @p6 LIKE N'%DZIAL%AUTOMAT%' AND @p6 LIKE N'%TEL%'
+                SET @result = N'Biuro Zakładu';
+            ELSE IF @p6 LIKE N'%PSJSP%' AND @p6 LIKE N'%SWSP%' AND @p6 LIKE N'%BHP%'
+                SET @result = N'Biuro Zakładu';
+            ELSE IF @p6 LIKE N'%DZIAL%DROG%' AND @p6 LIKE N'%KOLEJ%'
+                SET @result = N'Biuro Zakładu';
+            ELSE IF @p6 LIKE N'%DZIAL%EKONOM%'
+                SET @result = N'Biuro Zakładu';
+            ELSE IF @p6 LIKE N'%DZIAL%EKSPLOAT%' OR @p6 LIKE N'%DZIAL%INFRASTRUKT%'
+                SET @result = N'Biuro Zakładu';
+            ELSE IF @p6 LIKE N'%DZIAL%ENERGET%'
+                SET @result = N'Biuro Zakładu';
+            ELSE IF @p6 LIKE N'%GOSPODARKI%MATERIAL%' OR @p6 LIKE N'%GOSP%MATER%'
+                SET @result = N'Biuro Zakładu';
+            ELSE IF @p6 LIKE N'%SWSP%' AND @p6 LIKE N'%INFORMAT%'
+                SET @result = N'Biuro Zakładu';
+            ELSE IF @p6 LIKE N'%DZIAL%INWESTYC%'
+                SET @result = N'Biuro Zakładu';
+            ELSE IF @p6 LIKE N'%DZIA%KONTROL%' AND @p6 LIKE N'%INSTRUKT%'
+                SET @result = N'Biuro Zakładu';
+            ELSE IF (@p6 LIKE N'%SISP%' OR @p6 LIKE N'%SWSP%') AND @p6 LIKE N'%OCHRONA%'
+                SET @result = N'Biuro Zakładu';
+            ELSE IF @p6 LIKE N'%DZIAL%ORGANIZ%' OR @p6 LIKE N'%ORG-PRAW%'
+                SET @result = N'Biuro Zakładu';
+            ELSE IF @p6 LIKE N'%DZIAL%SPRAW%PRAC%'
+                SET @result = N'Biuro Zakładu';
+            ELSE IF @p6 LIKE N'%DZIAL%FINANS%' OR @p6 LIKE N'%DZIAL%RACHUNKOW%'
+                SET @result = N'Biuro Zakładu';
+            ELSE IF @p6 LIKE N'%DZIAL%ZAPLECZ%'
+                SET @result = N'Biuro Zakładu';
+            ELSE IF @p6 LIKE N'%DZIAL%ZARZADZANIA%DWORC%'
+                SET @result = N'Biuro Zakładu';
+        END
+    END;
+
+    ----------------------------------------------------------------
+    -- BLOK 4 – OSTATECZNY FALLBACK: BIURO ZAKŁADU po POZIOMIE 3
+    -- tylko dla kodów 0.* i tylko jeśli nic wcześniej nie zadziałało
+    ----------------------------------------------------------------
+    IF @result IS NULL
+       AND @kod IS NOT NULL
+       AND @kod LIKE N'0.%'
+    BEGIN
+        SET @poziom3 = NULLIF(LTRIM(RTRIM(@Poziom3DlugaNazwa)), N'');
+
+        IF @poziom3 IS NOT NULL
+        BEGIN
+            SET @poziom3 = UPPER(@poziom3) COLLATE Latin1_General_CI_AI;
+
+            IF @poziom3 LIKE N'%BIURO%ZAK%'
+                SET @result = N'Biuro Zakładu';
         END
     END;
 
     RETURN @result;
 END;
 GO
+
 
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -623,3 +687,71 @@ END;
     RETURN @result;
 END;
 GO
+
+-------------------------------------------------------------------------------------------------------------------------
+
+
+-------------------------------------------------------------------------------------------------------------------------
+ CREATE OR ALTER FUNCTION dbo.fn_Branza_Uproszczona
+(
+    @KodDzialalnosci NVARCHAR(50)
+)
+RETURNS NVARCHAR(100)
+AS
+BEGIN
+    DECLARE @kod NVARCHAR(50);
+
+    -- Normalizacja / czyszczenie
+    SET @kod = NULLIF(LTRIM(RTRIM(@KodDzialalnosci)), N'');
+    IF @kod IS NULL
+        RETURN NULL;
+
+    -- usuń whitespace + typowe separatory
+    SET @kod = REPLACE(@kod, NCHAR(160), N''); -- NBSP
+    SET @kod = REPLACE(@kod, CHAR(9),   N'');  -- TAB
+    SET @kod = REPLACE(@kod, CHAR(13),  N'');  -- CR
+    SET @kod = REPLACE(@kod, CHAR(10),  N'');  -- LF
+    SET @kod = REPLACE(@kod, N' ',      N'');  -- spacja
+    SET @kod = REPLACE(@kod, N'_',      N'');
+    SET @kod = REPLACE(@kod, N'-',      N'');
+    SET @kod = REPLACE(@kod, N'/',      N'');
+
+    -- opcjonalnie: ujednolicenie kropki (zostawiamy kropki, bo są istotne)
+    -- SET @kod = REPLACE(@kod, N',', N'.');
+
+    -- 0.* -> Administracja
+    IF @kod = N'0' OR @kod LIKE N'0.%'
+        RETURN N'Administracja';
+
+    -- 2.1.*, 2.2.*, 2.3.* -> Utrzymanie i diagnostyka drogi kolejowej
+    IF @kod LIKE N'2.1.%' OR @kod LIKE N'2.2.%' OR @kod LIKE N'2.3.%'
+        RETURN N'Utrzymanie i diagnostyka drogi kolejowej';
+
+    -- 2.4.* -> Utrzymanie i diagnostyka energetyki
+    IF @kod LIKE N'2.4.%'
+        RETURN N'Utrzymanie i diagnostyka energetyki';
+
+    -- 2.5.*, 2.6.* -> Utrzymanie i diagnostyka automatyki i telekomunikacji
+    IF @kod LIKE N'2.5.%' OR @kod LIKE N'2.6.%'
+        RETURN N'Utrzymanie i diagnostyka automatyki i telekomunikacji';
+
+    -- 2.7.3.* -> Dyspozytorzy (priorytet)
+    IF @kod = N'2.7.3' OR @kod LIKE N'2.7.3.%'
+        RETURN N'Dyspozytorzy';
+
+    -- 2.7.1.*, 2.7.2.* -> Inżynieria ruchu
+    IF @kod LIKE N'2.7.1.%' OR @kod = N'2.7.2' OR @kod LIKE N'2.7.2.%'
+        RETURN N'Inżynieria ruchu';
+
+    -- 5.* i 6.* -> Działalność dodatkowa
+    IF @kod = N'5' OR @kod LIKE N'5.%' OR @kod = N'6' OR @kod LIKE N'6.%'
+        RETURN N'Działalność dodatkowa';
+
+    RETURN NULL;
+END;
+GO
+
+
+
+
+
