@@ -1,0 +1,90 @@
+
+
+-- WSZYSTKIE NIEZGODNOŚCI
+
+;WITH X AS
+(
+    SELECT
+        r.ROK,
+        r.MIESIAC,
+        r.NUMER_PERSONALNY,
+
+        -- ręczne vs auto: BRANŻA (znormalizowane)
+        NULLIF(LTRIM(RTRIM(r.branza)), N'') AS BRANZA_RECZNA_N,
+        NULLIF(LTRIM(RTRIM(b.BRANZA_AUTO)), N'') AS BRANZA_AUTO_N,
+
+        -- poziomy organizacyjne
+        r.JEDNOSTKA_ORGANIZACYJNA_P3_OPIS AS P3,
+        r.JEDNOSTKA_ORGANIZACYJNA_P6_OPIS AS P6,
+
+        -- stanowiska źródłowe
+        r.STANOWISKO_ZUZP_OPIS AS STANOWISKO_ZUZP_OPIS,
+        r.STANOWISKO_OPIS      AS STANOWISKO_OPIS,
+
+        -- ręczne vs auto: STANOWISKO (znormalizowane)
+        NULLIF(LTRIM(RTRIM(r.stanowisko)), N'')      AS STANOWISKO_RECZNE_N,
+        NULLIF(LTRIM(RTRIM(s.STANOWISKO_AUTO)), N'') AS STANOWISKO_AUTO_N,
+
+        -- pomocniczo (często się przydaje w debugowaniu)
+        r.OBSZAR_KADROWY_OPIS,
+        r.KOD_DZIALALNOSCI_4
+    FROM dbo.BI_WRZE_PAZ_v4 r
+    CROSS APPLY
+    (
+        SELECT dbo.fn_Branza(
+            r.OBSZAR_KADROWY_OPIS,
+            r.KOD_DZIALALNOSCI_4,
+            r.JEDNOSTKA_ORGANIZACYJNA_P3_OPIS,
+            r.JEDNOSTKA_ORGANIZACYJNA_P6_OPIS,
+            r.STANOWISKO_ZUZP_OPIS
+        ) AS BRANZA_AUTO
+    ) b
+    CROSS APPLY
+    (
+        SELECT dbo.fn_StanowiskoBI(
+            r.branza,
+            r.OBSZAR_KADROWY_OPIS,
+            r.KOD_DZIALALNOSCI_4,
+            r.JEDNOSTKA_ORGANIZACYJNA_P3_OPIS,
+            r.JEDNOSTKA_ORGANIZACYJNA_P6_OPIS,
+            r.STANOWISKO_ZUZP_OPIS,
+            r.STANOWISKO_OPIS
+        ) AS STANOWISKO_AUTO
+    ) s
+)
+SELECT
+    X.ROK,
+    X.MIESIAC,
+    X.NUMER_PERSONALNY,
+
+    X.BRANZA_RECZNA_N  AS BRANZA_RECZNA,
+    X.BRANZA_AUTO_N    AS BRANZA_AUTO,
+
+    X.STANOWISKO_RECZNE_N AS STANOWISKO_RECZNE,
+    X.STANOWISKO_AUTO_N   AS STANOWISKO_AUTO,
+
+    X.P3,
+    X.P6,
+    X.STANOWISKO_ZUZP_OPIS,
+    X.STANOWISKO_OPIS,
+    X.OBSZAR_KADROWY_OPIS,
+    X.KOD_DZIALALNOSCI_4,
+
+    CASE WHEN ISNULL(X.BRANZA_RECZNA_N, N'#NULL#') <> ISNULL(X.BRANZA_AUTO_N, N'#NULL#')
+         THEN 1 ELSE 0 END AS NIEZGODNOSC_BRANZA,
+
+    CASE WHEN ISNULL(X.STANOWISKO_RECZNE_N, N'#NULL#') <> ISNULL(X.STANOWISKO_AUTO_N, N'#NULL#')
+         THEN 1 ELSE 0 END AS NIEZGODNOSC_STANOWISKO
+FROM X
+WHERE
+    -- dowolna niezgodność (branża i/lub stanowisko)
+    ISNULL(X.BRANZA_RECZNA_N, N'#NULL#') <> ISNULL(X.BRANZA_AUTO_N, N'#NULL#')
+    OR
+    ISNULL(X.STANOWISKO_RECZNE_N, N'#NULL#') <> ISNULL(X.STANOWISKO_AUTO_N, N'#NULL#')
+ORDER BY
+    X.ROK DESC,
+    X.MIESIAC DESC,
+    NIEZGODNOSC_BRANZA DESC,
+    NIEZGODNOSC_STANOWISKO DESC,
+    X.BRANZA_RECZNA_N,
+    X.NUMER_PERSONALNY;
