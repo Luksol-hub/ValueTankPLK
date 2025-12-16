@@ -429,12 +429,18 @@ BEGIN
 		SET @s037 = REPLACE(@s037, N'Ż', N'Z');
 		SET @s037 = REPLACE(@s037, N'Ź', N'Z');
 
-		-- reguły
-		IF @s037 LIKE N'%DS%' AND @s037 LIKE N'%ADMINISTRACJ%' AND @s037 LIKE N'%LINIOW%'
+		    -- reguły
+		IF @s037 LIKE N'%DS%' 
+		   AND @s037 LIKE N'%ADMINISTRACJ%' 
+		   AND @s037 LIKE N'%LINIOW%'
+		BEGIN
 			SET @result = N'ds. administracji liniowej';
-		ELSE IF @s037 LIKE N'%ADMINISTRACJ%' AND @s037 LIKE N'%TECHNIC%'
+		END
+		ELSE
+		BEGIN
 			SET @result = N'ds. administracji technicznej';
-	END;
+		END;
+    END;
 
 	----------------------------------------------------------------
 	-- BLOK 2: Administracja, KOD 0.2.2 → zawiadowca ds. ...
@@ -502,232 +508,373 @@ BEGIN
     END;
 
 	----------------------------------------------------------------
-	-- BLOK 5: Biuro Zakładu – komórki ds. ... (po POZIOM_6)
-	-- porównania po tekście bez polskich znaków (Ł->L, Ó->O, Ś->S, itp.)
+-- BLOK 5: Biuro Zakładu – komórki ds. ... (po POZIOM_6)
+----------------------------------------------------------------
+IF @result IS NULL
+   AND @Branza = N'Biuro Zakładu'
+   AND @p6 IS NOT NULL
+BEGIN
+    DECLARE @p6_norm NVARCHAR(255) = @p6;
+
+    ----------------------------------------------------------------
+    -- Normalizacja: separatory + whitespace
+    ----------------------------------------------------------------
+    SET @p6_norm = REPLACE(@p6_norm, N'_', N' ');
+    SET @p6_norm = UPPER(@p6_norm);
+
+    SET @p6_norm = REPLACE(@p6_norm, NCHAR(160), N' '); -- NBSP
+    SET @p6_norm = REPLACE(@p6_norm, CHAR(9),   N' ');  -- TAB
+    SET @p6_norm = REPLACE(@p6_norm, CHAR(13),  N' ');  -- CR
+    SET @p6_norm = REPLACE(@p6_norm, CHAR(10),  N' ');  -- LF
+
+    SET @p6_norm = REPLACE(@p6_norm, N'.', N' ');
+    SET @p6_norm = REPLACE(@p6_norm, N',', N' ');
+    SET @p6_norm = REPLACE(@p6_norm, N'-', N' ');
+    SET @p6_norm = REPLACE(@p6_norm, N'/', N' ');
+    SET @p6_norm = REPLACE(@p6_norm, N'(', N' ');
+    SET @p6_norm = REPLACE(@p6_norm, N')', N' ');
+
+    WHILE CHARINDEX(N'  ', @p6_norm) > 0
+        SET @p6_norm = REPLACE(@p6_norm, N'  ', N' ');
+
+    ----------------------------------------------------------------
+    -- Usunięcie polskich znaków (transliteracja do ASCII)
+    ----------------------------------------------------------------
+    SET @p6_norm = REPLACE(@p6_norm, N'Ą', N'A');
+    SET @p6_norm = REPLACE(@p6_norm, N'Ć', N'C');
+    SET @p6_norm = REPLACE(@p6_norm, N'Ę', N'E');
+    SET @p6_norm = REPLACE(@p6_norm, N'Ł', N'L');
+    SET @p6_norm = REPLACE(@p6_norm, N'Ń', N'N');
+    SET @p6_norm = REPLACE(@p6_norm, N'Ó', N'O');
+    SET @p6_norm = REPLACE(@p6_norm, N'Ś', N'S');
+    SET @p6_norm = REPLACE(@p6_norm, N'Ż', N'Z');
+    SET @p6_norm = REPLACE(@p6_norm, N'Ź', N'Z');
+
+    ----------------------------------------------------------------
+    -- Dopasowania
+    ----------------------------------------------------------------
+
+    -- automatyka i telekomunikacja
+    IF (
+           (@p6_norm LIKE N'%DZIAL%AUTOMAT%' AND @p6_norm LIKE N'%TEL%')
+        OR (@p6_norm LIKE N'%SWSP%' AND @p6_norm LIKE N'%AUTOMAT%' AND @p6_norm LIKE N'%TELEKOM%')
+       )
+        SET @result = N'komórka ds. automatyki i telekomunikacji';
+
+    -- BHP: SJSP/SWSP/SISP + BHP
+    ELSE IF (@p6_norm LIKE N'%SJSP%' OR @p6_norm LIKE N'%SWSP%' OR @p6_norm LIKE N'%SISP%')
+         AND @p6_norm LIKE N'%BHP%'
+        SET @result = N'komórka ds. bhp';
+
+    -- drogi kolejowe + ochrona środowiska + szkody górnicze
+    ELSE IF (
+                (
+                    @p6_norm LIKE N'%DZIAL%DROG%'
+                    AND (
+                            @p6_norm LIKE N'%KOLEJ%'
+                         OR @p6_norm LIKE N'% KOL%'
+                        )
+                )
+                OR
+                (
+                    @p6_norm LIKE N'%DZIAL%'
+                    AND @p6_norm LIKE N'%SZK%'
+                    AND @p6_norm LIKE N'%GORN%'
+                    AND @p6_norm LIKE N'%OCHR%'
+                    AND (
+                            @p6_norm LIKE N'% SR %'
+                         OR @p6_norm LIKE N'% SR%'
+                         OR @p6_norm LIKE N'% SROD%'
+                        )
+                )
+            )
+        SET @result = N'komórka ds. dróg kolejowych, ochrony środowiska i szkód górniczych';
+
+    ----------------------------------------------------------------
+    -- FINANSE vs EKONOMIA (PRIORYTET: FINANSE)
+    -- Rozróżnienie po KOLEJNOŚCI słów:
+    --  - "DZIAL RACHUNK... FINANS... EKON..." -> FINANSE
+    --  - "DZIAL EKON... RACHUNK... FINANS..." -> EKONOMIA
+    ----------------------------------------------------------------
+    ELSE
+    BEGIN
+        DECLARE @posEkon INT = NULLIF(CHARINDEX(N'EKON',    @p6_norm), 0);
+        DECLARE @posRach INT = NULLIF(CHARINDEX(N'RACHUNK', @p6_norm), 0);
+        DECLARE @posFin  INT = NULLIF(CHARINDEX(N'FINANS',  @p6_norm), 0);
+
+        -- A) FINANSE: "Dział finansowo-ekonomiczny" -> FINANSE (Twoje 7+7)
+        IF @result IS NULL
+           AND @p6_norm LIKE N'%DZIAL%FINANSOWO%'
+           AND @p6_norm LIKE N'%EKON%'
+        BEGIN
+            SET @result = N'komórka ds. rachunkowości i finansów';
+        END
+
+        -- B) FINANSE: "Dział rachunkowości, finansów i ekonom..." -> FINANSE (Twoje 6+6)
+        -- tylko jeśli RACHUNK jest PRZED EKON (żeby nie złapać "Dział ekonom, rachunkowości i finansów")
+        ELSE IF @result IS NULL
+           AND @p6_norm LIKE N'%DZIAL%'
+           AND @p6_norm LIKE N'%RACHUNK%'
+           AND @p6_norm LIKE N'%FINANS%'
+           AND @p6_norm LIKE N'%EKON%'
+           AND @posRach IS NOT NULL AND @posEkon IS NOT NULL
+           AND @posRach < @posEkon
+        BEGIN
+            SET @result = N'komórka ds. rachunkowości i finansów';
+        END
+
+        -- C) FINANSE: klasyczne "rachunk + finans" bez EKON
+        ELSE IF @result IS NULL
+           AND @p6_norm LIKE N'%DZIAL%'
+           AND @p6_norm LIKE N'%RACHUNK%'
+           AND @p6_norm LIKE N'%FINANS%'
+           AND @p6_norm NOT LIKE N'%EKON%'
+        BEGIN
+            SET @result = N'komórka ds. rachunkowości i finansów';
+        END
+
+        -- D) FINANSE: dział finansowy (bez EKON)
+        ELSE IF @result IS NULL
+           AND @p6_norm LIKE N'%DZIAL%FINANS%'
+           AND @p6_norm NOT LIKE N'%EKON%'
+        BEGIN
+            SET @result = N'komórka ds. rachunkowości i finansów';
+        END
+
+        -- E) FINANSE: SWSP (ds. rachunkowości) / SWSP + rachunk
+        ELSE IF @result IS NULL
+           AND @p6_norm LIKE N'%SWSP%'
+           AND @p6_norm LIKE N'%RACHUNK%'
+        BEGIN
+            SET @result = N'komórka ds. rachunkowości i finansów';
+        END
+
+        -- F) EKONOMIA: SWSP (sprawy ekonomiczne)
+        ELSE IF @result IS NULL
+           AND @p6_norm LIKE N'%SWSP%'
+           AND (@p6_norm LIKE N'%SPR%' OR @p6_norm LIKE N'%SPRAW%')
+           AND @p6_norm LIKE N'%EKON%'
+        BEGIN
+            SET @result = N'komórka ds. ekonomicznych';
+        END
+
+        -- G) EKONOMIA: "Dział ekonom..., rachunkowości i finansów" -> EKONOMIA
+        -- (czyli EKON jest PRZED RACHUNK)
+        ELSE IF @result IS NULL
+           AND @p6_norm LIKE N'%DZIAL%'
+           AND @p6_norm LIKE N'%EKON%'
+           AND (@p6_norm LIKE N'%RACHUNK%' OR @p6_norm LIKE N'%FINANS%')
+           AND @posEkon IS NOT NULL
+           AND ( @posRach IS NULL OR @posEkon < @posRach )
+        BEGIN
+            SET @result = N'komórka ds. ekonomicznych';
+        END
+
+        -- H) EKONOMIA: dział ekonomiczny (fallback)
+        ELSE IF @result IS NULL
+           AND @p6_norm LIKE N'%DZIAL%'
+           AND @p6_norm LIKE N'%EKON%'
+        BEGIN
+            SET @result = N'komórka ds. ekonomicznych';
+        END
+    END
+
+    ----------------------------------------------------------------
+    -- pozostałe reguły jak były
+    ----------------------------------------------------------------
+
+    -- eksploatacji i infrastruktury pasażerskiej
+    IF @result IS NULL AND (@p6_norm LIKE N'%DZIAL%EKSPLOAT%' OR @p6_norm LIKE N'%DZIAL%INFRASTRUK%')
+        SET @result = N'komórka ds. eksploatacji i infrastruktury pasażerskiej';
+
+    -- energetyka
+    ELSE IF @result IS NULL AND (
+                @p6_norm LIKE N'%DZIAL%ENERGET%'
+             OR (@p6_norm LIKE N'%SWSP%' AND @p6_norm LIKE N'%ENERGET%')
+             OR (@p6_norm LIKE N'%SJSP%' AND @p6_norm LIKE N'%ENERGET%')
+             OR (@p6_norm LIKE N'%SISP%' AND @p6_norm LIKE N'%ENERGET%')
+            )
+        SET @result = N'komórka ds. energetyki';
+
+    -- gospodarka materiałowa i zamówienia
+    ELSE IF @result IS NULL AND (
+                @p6_norm LIKE N'%GOSPODARKI%MATERIAL%'
+             OR @p6_norm LIKE N'%GOSP%MATER%'
+             OR @p6_norm LIKE N'%ZAMOW%'
+            )
+        SET @result = N'komórka ds. gospodarki materiałowej i zamówień';
+
+    -- Informatyka użytkowa
+    ELSE IF @result IS NULL AND (@p6_norm LIKE N'%SWSP%' OR @p6_norm LIKE N'%SJSP%' OR @p6_norm LIKE N'%SISP%')
+         AND @p6_norm LIKE N'%INFORMAT%'
+        SET @result = N'komórka ds. Informatyki użytkowej';
+
+    -- inwestycje
+    ELSE IF @result IS NULL AND @p6_norm LIKE N'%DZIAL%INWESTYC%'
+        SET @result = N'komórka ds. Inwestycji';
+
+    -- kontrola i instruktaż
+    ELSE IF @result IS NULL AND @p6_norm LIKE N'%DZIAL%KONTROL%' AND @p6_norm LIKE N'%INSTRUKT%'
+        SET @result = N'komórka ds. kontroli i instruktażu';
+
+    -- Ochrona informacji / obronne / kryzysowe
+    ELSE IF @result IS NULL AND (
+                (@p6_norm LIKE N'%SISP%' OR @p6_norm LIKE N'%SWSP%' OR @p6_norm LIKE N'%SJSP%')
+                AND (
+                    @p6_norm LIKE N'%OCHRONA%'
+                    OR @p6_norm LIKE N'% OCH %'
+                    OR @p6_norm LIKE N'%OCH INF%'
+                    OR @p6_norm LIKE N'%OCHR INF%'
+                    OR @p6_norm LIKE N'%INFORM%'
+                )
+                AND (
+                    @p6_norm LIKE N'%OBRON%'
+                    OR @p6_norm LIKE N'%KRYZ%'
+                    OR @p6_norm LIKE N'%INFORM%'
+                )
+            )
+        SET @result = N'komórka ds. ochrony informacji, obronnych i kryzysowych';
+
+    -- pracownicze
+    ELSE IF @result IS NULL AND (
+                @p6_norm LIKE N'%DZIAL%SPRAW%PRAC%'
+             OR @p6_norm LIKE N'%DZIAL%SPRAW%PRACOW%'
+             OR @p6_norm LIKE N'%PRACOWNICZ%'
+            )
+        SET @result = N'komórka ds. pracowniczych';
+
+    -- organizacyjno-prawne i archiwizacja
+    ELSE IF @result IS NULL AND (
+                (
+                    ( @p6_norm LIKE N'%DZIAL%ORGANIZ%' AND @p6_norm LIKE N'%PRAW%' )
+                 OR ( @p6_norm LIKE N'%SWSP%' AND @p6_norm LIKE N'%ORG%' AND @p6_norm LIKE N'%PRAW%' )
+                 OR ( @p6_norm LIKE N'%ORG%PRAW%' )
+                 OR ( @p6_norm LIKE N'%ORG PRA%' )
+                )
+                AND @p6_norm NOT LIKE N'%SPRAW%PRAC%'
+                AND @p6_norm NOT LIKE N'%PRACOWNICZ%'
+            )
+        SET @result = N'komórka ds. organizacyjno-prawnych i archiwizacji';
+
+----------------------------------------------------------------
+-- zaplecze tech. i ochrona ppoż  (bardziej tolerancyjne)
+----------------------------------------------------------------
+ELSE IF (
+            -- klasyczne "dział zaplecza ... ppoż"
+            (@p6_norm LIKE N'%DZIAL%ZAPLECZ%' AND (@p6_norm LIKE N'%PPOZ%' OR @p6_norm LIKE N'%PPOZAR%'))
+
+         OR (
+                -- warianty SWSP z PPOŻ
+                @p6_norm LIKE N'%SWSP%'
+            AND (@p6_norm LIKE N'%ZAPL%' OR @p6_norm LIKE N'%ZAPLECZ%' OR @p6_norm LIKE N'%ZAP%')
+            AND (
+                    @p6_norm LIKE N'%PPOZ%'
+                 OR @p6_norm LIKE N'%PPOZAR%'
+                 OR ( @p6_norm LIKE N'%OCHR%' AND (@p6_norm LIKE N'%PPOZ%' OR @p6_norm LIKE N'%PPOZAR%') )
+                )
+            )
+
+         OR (
+                -- skrótowe: "SWSP (zap. techn. ratow. i ochr.)"
+                @p6_norm LIKE N'%SWSP%'
+            AND (@p6_norm LIKE N'%ZAPL%' OR @p6_norm LIKE N'%ZAPLECZ%' OR @p6_norm LIKE N'%ZAP%')
+            AND @p6_norm LIKE N'%TECH%'
+            AND (
+                    @p6_norm LIKE N'%RATOWN%'   -- pełne
+                 OR @p6_norm LIKE N'%RATOW%'    -- skrót "ratow."
+                 OR @p6_norm LIKE N'%RAT%'      -- awaryjnie, gdyby było mocno ucięte
+                )
+            -- OCHR zostawiam jako soft (opcjonalne), bo bywa ucięte / inaczej zapisane
+            )
+        )
+BEGIN
+    SET @result = N'komórka ds. zaplecz tech. i ochrony ppoż';
+END;
+
+
+    -- zarządzanie Dworcem – rozróżnienie po P6
+    ELSE IF @result IS NULL AND @p6_norm LIKE N'%DZIAL%ZARZADZANIA%DWORC%'
+         AND @p6_norm LIKE N'%WARSZAW%'
+         AND @p6_norm LIKE N'%ZACH%'
+        SET @result = N'komórka ds. zarządzania Dworcem Warszawa Zachodnia';
+
+    ELSE IF @result IS NULL AND @p6_norm LIKE N'%DZIAL%ZARZADZANIA%DWORC%'
+         AND @p6_norm LIKE N'%LODZ%'
+         AND @p6_norm LIKE N'%FABRYC%'
+        SET @result = N'komórka ds. zarządzania Dworcem Łódź Fabryczna';
+
+    ELSE IF @result IS NULL AND @p6_norm LIKE N'%DZIAL%ZARZADZANIA%DWORC%'
+        SET @result = N'komórka ds. zarządzania Dworcem Łódź Fabryczna';
+END;
+
+
+
+
+    ----------------------------------------------------------------
+	-- BLOK 6: Droga kolejowa – Kierownik SPRT / utrzymanie
 	----------------------------------------------------------------
 	IF @result IS NULL
-	   AND @Branza = N'Biuro Zakładu'
-	   AND @p6 IS NOT NULL
+	   AND @Branza = N'Droga kolejowa'
+	   AND @kod IN (
+			N'2.1.1',  N'2.1.1.1', N'2.1.1.2',
+			N'2.1.2',  N'2.1.2.1',
+			N'2.1.3',  N'2.1.3.1',
+			N'2.1.4',  N'2.1.4.1', N'2.1.4.2',
+			N'2.2.1',
+			N'2.3.1',  N'2.3.1.1', N'2.3.1.2'
+	   )
+	   AND ( @stanOpisUpper IS NOT NULL OR @stanUpper IS NOT NULL )
 	BEGIN
-		DECLARE @p6_norm NVARCHAR(255) = @p6;
+		----------------------------------------------------------------
+		-- UWAGA: normalizujemy tekst jak w innych blokach
+		----------------------------------------------------------------
+		DECLARE @tekstUpper NVARCHAR(255) =
+			UPPER(COALESCE(@stanOpisUpper, @stanUpper)) COLLATE Latin1_General_CI_AI;
+
+		-- whitespace -> spacja
+		SET @tekstUpper = REPLACE(@tekstUpper, NCHAR(160), N' '); -- NBSP
+		SET @tekstUpper = REPLACE(@tekstUpper, CHAR(9),   N' ');  -- TAB
+		SET @tekstUpper = REPLACE(@tekstUpper, CHAR(13),  N' ');  -- CR
+		SET @tekstUpper = REPLACE(@tekstUpper, CHAR(10),  N' ');  -- LF
+
+		-- separatory -> spacja
+		SET @tekstUpper = REPLACE(@tekstUpper, N'.', N' ');
+		SET @tekstUpper = REPLACE(@tekstUpper, N',', N' ');
+		SET @tekstUpper = REPLACE(@tekstUpper, N'-', N' ');
+		SET @tekstUpper = REPLACE(@tekstUpper, N'/', N' ');
+
+		WHILE CHARINDEX(N'  ', @tekstUpper) > 0
+			SET @tekstUpper = REPLACE(@tekstUpper, N'  ', N' ');
+
+		-- transliteracja PL -> ASCII (żeby LIKE po "POCIAG" działał zawsze)
+		SET @tekstUpper = REPLACE(@tekstUpper, N'Ą', N'A');
+		SET @tekstUpper = REPLACE(@tekstUpper, N'Ć', N'C');
+		SET @tekstUpper = REPLACE(@tekstUpper, N'Ę', N'E');
+		SET @tekstUpper = REPLACE(@tekstUpper, N'Ł', N'L');
+		SET @tekstUpper = REPLACE(@tekstUpper, N'Ń', N'N');
+		SET @tekstUpper = REPLACE(@tekstUpper, N'Ó', N'O');
+		SET @tekstUpper = REPLACE(@tekstUpper, N'Ś', N'S');
+		SET @tekstUpper = REPLACE(@tekstUpper, N'Ż', N'Z');
+		SET @tekstUpper = REPLACE(@tekstUpper, N'Ź', N'Z');
 
 		----------------------------------------------------------------
-		-- Normalizacja: separatory + whitespace
+		-- Rozpoznanie Kierownik SPRT
 		----------------------------------------------------------------
-		SET @p6_norm = REPLACE(@p6_norm, N'_', N' ');
-		SET @p6_norm = UPPER(@p6_norm);
-
-		SET @p6_norm = REPLACE(@p6_norm, NCHAR(160), N' '); -- NBSP
-		SET @p6_norm = REPLACE(@p6_norm, CHAR(9),   N' ');  -- TAB
-		SET @p6_norm = REPLACE(@p6_norm, CHAR(13),  N' ');  -- CR
-		SET @p6_norm = REPLACE(@p6_norm, CHAR(10),  N' ');  -- LF
-
-		SET @p6_norm = REPLACE(@p6_norm, N'.', N' ');
-		SET @p6_norm = REPLACE(@p6_norm, N',', N' ');
-		SET @p6_norm = REPLACE(@p6_norm, N'-', N' ');
-		SET @p6_norm = REPLACE(@p6_norm, N'/', N' ');
-
-		WHILE CHARINDEX(N'  ', @p6_norm) > 0
-			SET @p6_norm = REPLACE(@p6_norm, N'  ', N' ');
-
-		----------------------------------------------------------------
-		-- Usunięcie polskich znaków (transliteracja do ASCII)
-		----------------------------------------------------------------
-		SET @p6_norm = REPLACE(@p6_norm, N'Ą', N'A');
-		SET @p6_norm = REPLACE(@p6_norm, N'Ć', N'C');
-		SET @p6_norm = REPLACE(@p6_norm, N'Ę', N'E');
-		SET @p6_norm = REPLACE(@p6_norm, N'Ł', N'L');
-		SET @p6_norm = REPLACE(@p6_norm, N'Ń', N'N');
-		SET @p6_norm = REPLACE(@p6_norm, N'Ó', N'O');
-		SET @p6_norm = REPLACE(@p6_norm, N'Ś', N'S');
-		SET @p6_norm = REPLACE(@p6_norm, N'Ż', N'Z');
-		SET @p6_norm = REPLACE(@p6_norm, N'Ź', N'Z');
-
-		----------------------------------------------------------------
-		-- Dopasowania
-		----------------------------------------------------------------
-
-		-- automatyka i telekomunikacja
-		IF @p6_norm LIKE N'%DZIAL%AUTOMAT%' AND @p6_norm LIKE N'%TEL%'
-			SET @result = N'komórka ds. automatyki i telekomunikacji';
-
-		-- BHP: SJSP/SWSP/SISP + BHP
-		ELSE IF (@p6_norm LIKE N'%SJSP%' OR @p6_norm LIKE N'%SWSP%' OR @p6_norm LIKE N'%SISP%')
-			 AND @p6_norm LIKE N'%BHP%'
-			SET @result = N'komórka ds. bhp';
-
-		----------------------------------------------------------------
-		-- Drogi kolejowe + ochrona środowiska + szkody górnicze
-		-- POPRAWKA: łapie też skrót "KOL" (np. "Dział dróg kol, ...")
-		----------------------------------------------------------------
-		ELSE IF
-		(
-			@p6_norm LIKE N'%DZIAL%DROG%'
-			AND (
-					@p6_norm LIKE N'%KOLEJ%'
-				 OR @p6_norm LIKE N'% KOL%'      -- "DROG KOL"
-				)
-		)
-			SET @result = N'komórka ds. dróg kolejowych, ochrony środowiska i szkód górniczych';
-
-		-- ekonomiczne
-		ELSE IF @p6_norm LIKE N'%DZIAL%EKONOM%'
-			 OR (@p6_norm LIKE N'%SWSP%' AND @p6_norm LIKE N'%EKONOM%')
-			SET @result = N'komórka ds. ekonomicznych';
-
-		-- eksploatacji i infrastruktury pasażerskiej
-		ELSE IF @p6_norm LIKE N'%DZIAL%EKSPLOAT%'
-			 OR @p6_norm LIKE N'%DZIAL%INFRASTRUK%'
-			SET @result = N'komórka ds. eksploatacji i infrastruktury pasażerskiej';
-
-		-- energetyka
-		ELSE IF
-		(
-			@p6_norm LIKE N'%DZIAL%ENERGET%'
-			OR ( @p6_norm LIKE N'%SWSP%' AND @p6_norm LIKE N'%ENERGET%' )
-			OR ( @p6_norm LIKE N'%SJSP%' AND @p6_norm LIKE N'%ENERGET%' )
-			OR ( @p6_norm LIKE N'%SISP%' AND @p6_norm LIKE N'%ENERGET%' )
-		)
-			SET @result = N'komórka ds. energetyki';
-
-		-- gospodarka materiałowa i zamówienia
-		ELSE IF @p6_norm LIKE N'%GOSPODARKI%MATERIAL%'
-			 OR @p6_norm LIKE N'%GOSP%MATER%'
-			 OR @p6_norm LIKE N'%ZAMOW%'
-			SET @result = N'komórka ds. gospodarki materiałowej i zamówień';
-
-		-- Informatyka użytkowa (uwzględnij też "SJSP")
-		ELSE IF (@p6_norm LIKE N'%SWSP%' OR @p6_norm LIKE N'%SJSP%' OR @p6_norm LIKE N'%SISP%')
-			 AND @p6_norm LIKE N'%INFORMAT%'
-			SET @result = N'komórka ds. Informatyki użytkowej';
-
-		-- inwestycje
-		ELSE IF @p6_norm LIKE N'%DZIAL%INWESTYC%'
-			SET @result = N'komórka ds. Inwestycji';
-
-		-- kontrola i instruktaż
-		ELSE IF @p6_norm LIKE N'%DZIAL%KONTROL%' AND @p6_norm LIKE N'%INSTRUKT%'
-			SET @result = N'komórka ds. kontroli i instruktażu';
-
-		----------------------------------------------------------------
-		-- Ochrona informacji / obronne / kryzysowe
-		-- POPRAWKA: uwzględnij SJSP i skróty "OCH", "OCH INF", "OCHR INF"
-		----------------------------------------------------------------
-		ELSE IF
-		(
-			(@p6_norm LIKE N'%SISP%' OR @p6_norm LIKE N'%SWSP%' OR @p6_norm LIKE N'%SJSP%')
-			AND
-			(
-				@p6_norm LIKE N'%OCHRONA%'
-				OR @p6_norm LIKE N'% OCH %'
-				OR @p6_norm LIKE N'%OCH INF%'
-				OR @p6_norm LIKE N'%OCHR INF%'
-				OR @p6_norm LIKE N'%INFORM%'      -- "ochrona inform"
-			)
-			AND
-			(
-				@p6_norm LIKE N'%OBRON%'
-				OR @p6_norm LIKE N'%KRYZ%'
-				OR @p6_norm LIKE N'%INFORM%'
-			)
-		)
-			SET @result = N'komórka ds. ochrony informacji, obronnych i kryzysowych';
-
-		----------------------------------------------------------------
-		-- PRIORYTET: pracownicze (żeby nie wpadało do organizacyjno-prawnych)
-		----------------------------------------------------------------
-		ELSE IF (
-					@p6_norm LIKE N'%DZIAL%SPRAW%PRAC%'
-				 OR @p6_norm LIKE N'%DZIAL%SPRAW%PRACOW%'
-				 OR @p6_norm LIKE N'%PRACOWNICZ%'
-				)
-			SET @result = N'komórka ds. pracowniczych';
-
-		----------------------------------------------------------------
-		-- organizacyjno-prawne i archiwizacja:
-		-- wymagamy ORGANIZ + PRAW (i opcjonalnie ARCH), oraz wykluczamy pracownicze
-		-- UWAGA: ten blok zostaje po pracowniczych, ale przed finansami i zapleczem
-		----------------------------------------------------------------
-		ELSE IF
-		(
-			(
-				( @p6_norm LIKE N'%DZIAL%ORGANIZ%' AND @p6_norm LIKE N'%PRAW%' )
-				OR ( @p6_norm LIKE N'%SWSP%' AND @p6_norm LIKE N'%ORG%' AND @p6_norm LIKE N'%PRAW%' )
-				OR ( @p6_norm LIKE N'%ORG%PRAW%' )
-				OR ( @p6_norm LIKE N'%ORG PRA%' ) -- po zamianie separatorów
-			)
-			AND @p6_norm NOT LIKE N'%SPRAW%PRAC%'
-			AND @p6_norm NOT LIKE N'%PRACOWNICZ%'
-		)
-			SET @result = N'komórka ds. organizacyjno-prawnych i archiwizacji';
-
-		-- rachunkowość i finanse
-		ELSE IF @p6_norm LIKE N'%DZIAL%FINANS%'
-			 OR @p6_norm LIKE N'%DZIAL%RACHUNKOW%'
-			 OR (@p6_norm LIKE N'%SWSP%' AND (@p6_norm LIKE N'%FINANS%' OR @p6_norm LIKE N'%RACH%'))
-			SET @result = N'komórka ds. rachunkowości i finansów';
-
-		----------------------------------------------------------------
-		-- zaplecze tech. i ochrona ppoż
-		-- POPRAWKA: uwzględnij skrót PPOZ
-		----------------------------------------------------------------
-		ELSE IF
-		(
-			(@p6_norm LIKE N'%DZIAL%ZAPLECZ%' AND (@p6_norm LIKE N'%PPOZ%' OR @p6_norm LIKE N'%PPOZAR%'))
-			OR
-			(
-				@p6_norm LIKE N'%SWSP%'
-				AND (@p6_norm LIKE N'%ZAPL%' OR @p6_norm LIKE N'%ZAPLECZ%' OR @p6_norm LIKE N'%ZAP%')
-				AND (
-						@p6_norm LIKE N'%PPOZ%'
-					 OR @p6_norm LIKE N'%PPOZAR%'
-					 OR ( @p6_norm LIKE N'%OCHR%' AND (@p6_norm LIKE N'%PPOZ%' OR @p6_norm LIKE N'%PPOZAR%') )
-					)
-			)
-			OR
-			(@p6_norm LIKE N'%ZAPL%' AND (@p6_norm LIKE N'%PPOZ%' OR @p6_norm LIKE N'%PPOZAR%'))
-		)
-			SET @result = N'komórka ds. zaplecz tech. i ochrony ppoż';
-
-		-- zarządzanie Dworcem Łódź Fabryczna
-		ELSE IF @p6_norm LIKE N'%DZIAL%ZARZADZANIA%DWORC%'
-			SET @result = N'komórka ds. zarządzania Dworcem Łódź Fabryczna';
-
+		IF     @tekstUpper LIKE N'%KIEROWNIK%'
+		   AND @tekstUpper LIKE N'%SPECJALN%'   -- łapie: SPECJALNY / SPECJALNE / SPECJALN...
+		   AND @tekstUpper LIKE N'%POCIAG%'     -- po transliteracji: POCIĄG -> POCIAG
+		   AND @tekstUpper LIKE N'%RATOWN%'
+		   AND @tekstUpper LIKE N'%TECH%'
+		BEGIN
+			SET @result = N'Kierownik SPRT';
+		END
+		ELSE
+		BEGIN
+			SET @result = N'utrzymanie';
+		END
 	END;
 
 
-
-
-    ----------------------------------------------------------------
-    -- BLOK 6: Droga kolejowa – Kierownik SPRT / utrzymanie
-    ----------------------------------------------------------------
-    IF @result IS NULL
-       AND @Branza = N'Droga kolejowa'
-       AND @kod IN (
-            N'2.1.1',  N'2.1.1.1', N'2.1.1.2',
-            N'2.1.2',  N'2.1.2.1',
-            N'2.1.3',  N'2.1.3.1',
-            N'2.1.4',  N'2.1.4.1', N'2.1.4.2',
-            N'2.2.1',
-            N'2.3.1',  N'2.3.1.1', N'2.3.1.2'
-       )
-       AND ( @stanOpisUpper IS NOT NULL OR @stanUpper IS NOT NULL )
-    BEGIN
-        DECLARE @tekstUpper NVARCHAR(255) = COALESCE(@stanOpisUpper, @stanUpper);
-
-        IF     @tekstUpper LIKE N'%KIEROWNIK%'
-           AND @tekstUpper LIKE N'%SPECJALN%'
-           AND @tekstUpper LIKE N'%POCIAG%'
-           AND @tekstUpper LIKE N'%RATOWN%'
-           AND @tekstUpper LIKE N'%TECH%'
-        BEGIN
-            SET @result = N'Kierownik SPRT';
-        END
-        ELSE
-        BEGIN
-            SET @result = N'utrzymanie';
-        END
-    END;
 
     ----------------------------------------------------------------
     -- BLOK 7: Automatyka i telekomunikacja – utrzymanie
@@ -739,6 +886,7 @@ BEGIN
             N'2.5.1.1',
             N'2.5.1.2',
             N'2.6.1',
+			N'2.6.1.1',   -- DODANE (Twoje rekordy)
             N'2.6.2',
             N'2.6.2.1',
             N'2.6.3'
@@ -875,128 +1023,62 @@ BEGIN
             SET @result = N'zwrotniczy';
     END;
 
-        ----------------------------------------------------------------
-    -- BLOK: Zespoły diagnostyczne – główny inżynier / zespół
-    -- warunek "główny inżynier" sprawdzamy po STANOWISKO_OPIS (@stanUpper)
-    -- i porównujemy bez polskich znaków
-    ----------------------------------------------------------------
-    IF @result IS NULL
-       AND @Branza IN (
-            N'Zespół diagnostyczny ds. autom i telekom',
-            N'Zespół diagnostyczny ds. budynków i budo',
-            N'Zespół diagnostyczny ds. ele tra i nietr',
-            N'Zespół diagnostyczny ds. naw i podtorza',
-            N'Zespół diagnostyczny ds. obiektów inżyni'
-       )
-    BEGIN
-        DECLARE @s_norm NVARCHAR(255) = @stanUpper;
+	 ----------------------------------------------------------------
+	-- BLOK: Zespoły diagnostyczne – główny inżynier / zespół
+	-- UWAGA: "główny inżynier" sprawdzamy TYLKO po STANOWISKO_ZUZP_OPIS
+	-- (czyli @stanOpisUpper / @StanDlugaNazwa)
+	----------------------------------------------------------------
+	IF @result IS NULL
+	   AND @Branza IN (
+			N'Zespół diagnostyczny ds. autom i telekom',
+			N'Zespół diagnostyczny ds. budynków i budo',
+			N'Zespół diagnostyczny ds. ele tra i nietr',
+			N'Zespół diagnostyczny ds. naw i podtorza',
+			N'Zespół diagnostyczny ds. obiektów inżyni'
+	   )
+	BEGIN
+		DECLARE @zuzp_norm NVARCHAR(255) = @stanOpisUpper;  -- STANOWISKO_ZUZP_OPIS
 
-        IF @s_norm IS NOT NULL
-        BEGIN
-            -- whitespace + separatory
-            SET @s_norm = REPLACE(@s_norm, NCHAR(160), N' ');
-            SET @s_norm = REPLACE(@s_norm, CHAR(9),   N' ');
-            SET @s_norm = REPLACE(@s_norm, CHAR(13),  N' ');
-            SET @s_norm = REPLACE(@s_norm, CHAR(10),  N' ');
-            SET @s_norm = REPLACE(@s_norm, N'.', N' ');
-            SET @s_norm = REPLACE(@s_norm, N',', N' ');
-            SET @s_norm = REPLACE(@s_norm, N'-', N' ');
-            SET @s_norm = REPLACE(@s_norm, N'/', N' ');
+		IF @zuzp_norm IS NOT NULL
+		BEGIN
+			-- whitespace + separatory
+			SET @zuzp_norm = REPLACE(@zuzp_norm, NCHAR(160), N' ');
+			SET @zuzp_norm = REPLACE(@zuzp_norm, CHAR(9),   N' ');
+			SET @zuzp_norm = REPLACE(@zuzp_norm, CHAR(13),  N' ');
+			SET @zuzp_norm = REPLACE(@zuzp_norm, CHAR(10),  N' ');
+			SET @zuzp_norm = REPLACE(@zuzp_norm, N'.', N' ');
+			SET @zuzp_norm = REPLACE(@zuzp_norm, N',', N' ');
+			SET @zuzp_norm = REPLACE(@zuzp_norm, N'-', N' ');
+			SET @zuzp_norm = REPLACE(@zuzp_norm, N'/', N' ');
 
-            WHILE CHARINDEX(N'  ', @s_norm) > 0
-                SET @s_norm = REPLACE(@s_norm, N'  ', N' ');
+			WHILE CHARINDEX(N'  ', @zuzp_norm) > 0
+				SET @zuzp_norm = REPLACE(@zuzp_norm, N'  ', N' ');
 
-            -- usunięcie polskich znaków
-            SET @s_norm = REPLACE(@s_norm, N'Ą', N'A');
-            SET @s_norm = REPLACE(@s_norm, N'Ć', N'C');
-            SET @s_norm = REPLACE(@s_norm, N'Ę', N'E');
-            SET @s_norm = REPLACE(@s_norm, N'Ł', N'L');
-            SET @s_norm = REPLACE(@s_norm, N'Ń', N'N');
-            SET @s_norm = REPLACE(@s_norm, N'Ó', N'O');
-            SET @s_norm = REPLACE(@s_norm, N'Ś', N'S');
-            SET @s_norm = REPLACE(@s_norm, N'Ż', N'Z');
-            SET @s_norm = REPLACE(@s_norm, N'Ź', N'Z');
+			-- usunięcie polskich znaków
+			SET @zuzp_norm = REPLACE(@zuzp_norm, N'Ą', N'A');
+			SET @zuzp_norm = REPLACE(@zuzp_norm, N'Ć', N'C');
+			SET @zuzp_norm = REPLACE(@zuzp_norm, N'Ę', N'E');
+			SET @zuzp_norm = REPLACE(@zuzp_norm, N'Ł', N'L');
+			SET @zuzp_norm = REPLACE(@zuzp_norm, N'Ń', N'N');
+			SET @zuzp_norm = REPLACE(@zuzp_norm, N'Ó', N'O');
+			SET @zuzp_norm = REPLACE(@zuzp_norm, N'Ś', N'S');
+			SET @zuzp_norm = REPLACE(@zuzp_norm, N'Ż', N'Z');
+			SET @zuzp_norm = REPLACE(@zuzp_norm, N'Ź', N'Z');
 
-            IF @s_norm LIKE N'%GLOWN%' AND @s_norm LIKE N'%INZYNIER%'
-                SET @result = N'główny inżynier';
-            ELSE
-                SET @result = @Branza;
-        END
-        ELSE
-        BEGIN
-            SET @result = @Branza;
-        END
-    END;
+			IF @zuzp_norm LIKE N'%GLOWN%' AND @zuzp_norm LIKE N'%INZYNIER%'
+				SET @result = N'główny inżynier';
+			ELSE
+				SET @result = @Branza;
+		END
+		ELSE
+		BEGIN
+			-- jeśli brak STANOWISKO_ZUZP_OPIS, nie klasyfikujemy jako "główny inżynier"
+			SET @result = @Branza;
+		END
+	END;
+
 
 
     RETURN @result;
 END;
 GO
-
--------------------------------------------------------------------------------------------------------------------------
-
-
--------------------------------------------------------------------------------------------------------------------------
- CREATE OR ALTER FUNCTION dbo.fn_Branza_Uproszczona
-(
-    @KodDzialalnosci NVARCHAR(50)
-)
-RETURNS NVARCHAR(100)
-AS
-BEGIN
-    DECLARE @kod NVARCHAR(50);
-
-    -- Normalizacja / czyszczenie
-    SET @kod = NULLIF(LTRIM(RTRIM(@KodDzialalnosci)), N'');
-    IF @kod IS NULL
-        RETURN NULL;
-
-    -- usuń whitespace + typowe separatory
-    SET @kod = REPLACE(@kod, NCHAR(160), N''); -- NBSP
-    SET @kod = REPLACE(@kod, CHAR(9),   N'');  -- TAB
-    SET @kod = REPLACE(@kod, CHAR(13),  N'');  -- CR
-    SET @kod = REPLACE(@kod, CHAR(10),  N'');  -- LF
-    SET @kod = REPLACE(@kod, N' ',      N'');  -- spacja
-    SET @kod = REPLACE(@kod, N'_',      N'');
-    SET @kod = REPLACE(@kod, N'-',      N'');
-    SET @kod = REPLACE(@kod, N'/',      N'');
-
-    -- opcjonalnie: ujednolicenie kropki (zostawiamy kropki, bo są istotne)
-    -- SET @kod = REPLACE(@kod, N',', N'.');
-
-    -- 0.* -> Administracja
-    IF @kod = N'0' OR @kod LIKE N'0.%'
-        RETURN N'Administracja';
-
-    -- 2.1.*, 2.2.*, 2.3.* -> Utrzymanie i diagnostyka drogi kolejowej
-    IF @kod LIKE N'2.1.%' OR @kod LIKE N'2.2.%' OR @kod LIKE N'2.3.%'
-        RETURN N'Utrzymanie i diagnostyka drogi kolejowej';
-
-    -- 2.4.* -> Utrzymanie i diagnostyka energetyki
-    IF @kod LIKE N'2.4.%'
-        RETURN N'Utrzymanie i diagnostyka energetyki';
-
-    -- 2.5.*, 2.6.* -> Utrzymanie i diagnostyka automatyki i telekomunikacji
-    IF @kod LIKE N'2.5.%' OR @kod LIKE N'2.6.%'
-        RETURN N'Utrzymanie i diagnostyka automatyki i telekomunikacji';
-
-    -- 2.7.3.* -> Dyspozytorzy (priorytet)
-    IF @kod = N'2.7.3' OR @kod LIKE N'2.7.3.%'
-        RETURN N'Dyspozytorzy';
-
-    -- 2.7.1.*, 2.7.2.* -> Inżynieria ruchu
-    IF @kod LIKE N'2.7.1.%' OR @kod = N'2.7.2' OR @kod LIKE N'2.7.2.%'
-        RETURN N'Inżynieria ruchu';
-
-    -- 5.* i 6.* -> Działalność dodatkowa
-    IF @kod = N'5' OR @kod LIKE N'5.%' OR @kod = N'6' OR @kod LIKE N'6.%'
-        RETURN N'Działalność dodatkowa';
-
-    RETURN NULL;
-END;
-GO
-
-
-
-
-
