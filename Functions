@@ -727,11 +727,15 @@ BEGIN
                     OR @p6_norm LIKE N'%OCHR INF%'
                     OR @p6_norm LIKE N'%INFORM%'
                 )
-                AND (
-                    @p6_norm LIKE N'%OBRON%'
-                    OR @p6_norm LIKE N'%KRYZ%'
-                    OR @p6_norm LIKE N'%INFORM%'
-                )
+                AND
+			    (
+					@p6_norm LIKE N'%OBRON%'
+				 OR @p6_norm LIKE N'%KRYZ%'
+				 OR @p6_norm LIKE N'%INFORM%'
+				 OR ( @p6_norm LIKE N'%SJSP%' AND @p6_norm LIKE N'% OBR %' AND @p6_norm LIKE N'% KRY %' )
+				)
+
+
             )
         SET @result = N'komórka ds. ochrony informacji, obronnych i kryzysowych';
 
