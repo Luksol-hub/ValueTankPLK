@@ -39,7 +39,6 @@ SELECT
         ELSE 0
     END AS Czy_Brak_Kodu_Dzialalnosci,
 
-    -- jeden tekst, może zawierać oba komunikaty
     NULLIF(
         CONCAT(
             CASE WHEN r.cnt > 1 THEN N'Błąd: duplikat pracownika; ' ELSE N'' END,
@@ -89,11 +88,9 @@ SELECT
         ELSE N'Pozostałe'
     END AS Typ_Jednostki,
 
-    -- Branża uproszczona: jeżeli kod brak -> NULL (a informacja jest w walidacji)
     CASE
         WHEN NULLIF(LTRIM(RTRIM(COALESCE(CAST(r.KOD_DZIALALNOSCI_PODST30 AS varchar(50)), ''))), '') IS NULL
             THEN NULL
-
         WHEN LEFT(k.kod_norm, 1) = '0' THEN N'Administracja'
         WHEN LEFT(k.kod_norm, 2) IN ('21','22','23') THEN N'Utrzymanie i diagnostyka drogi kolejowej'
         WHEN LEFT(k.kod_norm, 2) = '24' THEN N'Utrzymanie i diagnostyka energetyki'
@@ -110,5 +107,10 @@ FROM OneRowPerEmployee r
 OUTER APPLY (
     SELECT
         kod_norm = REPLACE(REPLACE(LTRIM(RTRIM(COALESCE(CAST(r.KOD_DZIALALNOSCI_PODST30 AS varchar(50)), ''))), '.', ''), ' ', '')
-) k;
+) k
+WHERE
+    r.POZIOM_6_ID55 IS NOT NULL
+    -- opcjonalnie, jeśli chcesz wyciąć przypadki z pustą nazwą:
+    -- AND NULLIF(LTRIM(RTRIM(COALESCE(r.POZIOM_6_DLUGA_NAZWA57,''))), '') IS NOT NULL
+;
 GO
