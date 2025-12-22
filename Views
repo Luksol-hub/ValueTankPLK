@@ -1,106 +1,114 @@
-CREATE OR ALTER VIEW dbo.BI_DICT_STANZATRUDNIENIANADZIEN1
+CREATE OR ALTER VIEW dbo.BI_D_Struktura_Org
 AS
+WITH Latest AS (
+    SELECT MAX(CAST(STAN_NA_DZIEN72 AS datetime2(3))) AS MaxStan
+    FROM AZD.dbo.DICT_STANZATRUDNIENIANADZIEN1
+    WHERE STAN_NA_DZIEN72 IS NOT NULL
+),
+Base AS (
+    SELECT a.*
+    FROM AZD.dbo.DICT_STANZATRUDNIENIANADZIEN1 a
+    CROSS JOIN Latest l
+    WHERE a.STAN_NA_DZIEN72 = l.MaxStan
+),
+Ranked AS (
+    SELECT
+        a.*,
+        ROW_NUMBER() OVER (
+            PARTITION BY a.NR_OSOB0
+            ORDER BY a.record_id DESC
+        ) AS rn,
+        COUNT(*) OVER (PARTITION BY a.NR_OSOB0) AS cnt
+    FROM Base a
+),
+OneRowPerEmployee AS (
+    SELECT *
+    FROM Ranked
+    WHERE rn = 1
+)
 SELECT
-      b.BRANZA
-    , dbo.fn_StanowiskoBI(
-          b.BRANZA,
-          t.[OBSZAR_KADROWY9],
-          t.[KOD_DZIALALNOSCI_PODST30],
-          t.[POZIOM_3_DLUGA_NAZWA48],
-          t.[POZIOM_6_DLUGA_NAZWA57],
-          t.[STANZUZPUCHW_DLUGA_NAZWA28],
-          t.[STANOWISKO27]
-      ) AS STANOWISKO_BI
+    r.NR_OSOB0 AS NR_OSOB0,
 
-    , t.[record_id]
-    , t.[NR_OSOB0]
-    , t.[NUMER_OSOBOWY1]
-    , t.[NAZWISKO2]
-    , t.[IMIE3]
-    , t.[PLEC4]
-    , t.[DATA_UR5]
-    , t.[OBYWATELSTWO6]
-    , t.[WIEK_PRACOWNIKA7]
-    , t.[NR_OBSZ_KADR8]
-    , t.[OBSZAR_KADROWY9]
-    , t.[KOD_STAT_WG_ZATR10]
-    , t.[STATUS_ZATRUDNIENIA11]
-    , t.[KOD_STAT_WG_KLIENTA12]
-    , t.[STATUS_WEDLUG_KLIENTA13]
-    , t.[KOD_GR_PRAC14]
-    , t.[GRUPA_PRACOWNIKOW15]
-    , t.[KOD_PGR_PR16]
-    , t.[PODGRUPA_PRACOWNIKOW17]
-    , t.[POCZATEK18]
-    , t.[KOD_RODZ_ZDARZ19]
-    , t.[RODZAJ_ZDARZENIA20]
-    , t.[KOD_POW_ZDARZ21]
-    , t.[POWOD_ZDARZENIA22]
-    , t.[LICZBA23]
-    , t.[ETAT24]
-    , t.[WYMET_25]
-    , t.[NR_STANOWISKA26]
-    , t.[STANOWISKO27]
-    , t.[STANZUZPUCHW_DLUGA_NAZWA28]
-    , t.[OBSZAR_TARYFIKATORA29]
-    , t.[KOD_DZIALALNOSCI_PODST30]
-    , t.[DZIALALNOSC_PODST31]
-    , t.[KOD_FUNKCJI32]
-    , t.[FUNKCJA33]
-    , t.[KOD_ZAWODU_GUS34]
-    , t.[KOD_ZAWODU_GUS_OPIS35]
-    , t.[KOD_FEP36]
-    , t.[KOD_FEP_OPIS37]
-    , t.[NR_JEDN_ORG38]
-    , t.[JEDNOSTKA_ORGANIZACYJNA39]
-    , t.[POZIOM_1_ID40]
-    , t.[POZIOM_1_SKROT41]
-    , t.[POZIOM_1_DLUGA_NAZWA42]
-    , t.[POZIOM_2_ID43]
-    , t.[POZIOM_2_SKROT44]
-    , t.[POZIOM_2_DLUGA_NAZWA45]
-    , t.[POZIOM_3_ID46]
-    , t.[POZIOM_3_SKROT47]
-    , t.[POZIOM_3_DLUGA_NAZWA48]
-    , t.[POZIOM_4_ID49]
-    , t.[POZIOM_4_SKROT50]
-    , t.[POZIOM_4_DLUGA_NAZWA51]
-    , t.[POZIOM_5_ID52]
-    , t.[POZIOM_5_SKROT53]
-    , t.[POZIOM_5_DLUGA_NAZWA54]
-    , t.[POZIOM_6_ID55]
-    , t.[POZIOM_6_SKROT56]
-    , t.[POZIOM_6_DLUGA_NAZWA57]
-    , t.[POSTERUNEK_ID58]
-    , t.[POSTERUNEK_DLUGA_NAZWA59]
-    , t.[DZIENNE_GODZ_PRACY60]
-    , t.[GODZINYTYDZIEN61]
-    , t.[RODZAJ_UMOWY62]
-    , t.[D_ROZP_PRACY63]
-    , t.[POCZATEK_UMOWY64]
-    , t.[KON_UMOWY65]
-    , t.[SN66]
-    , t.[STOPIEN_NIEPELNOSPRAWNOSCI67]
-    , t.[DATA_POCZATK_NIEPELNOSPR68]
-    , t.[DATA_KONC_NIEPELNOSPR69]
-    , t.[TYP_PRAW_EMERYTALNYCH70]
-    , t.[KLUCZVT71]
-    , t.[original_record_id]
-    , t.[begin_date]
-    , t.[end_date]
-    , t.[current_flag]
-    , t.[status_code]
-    , t.[last_modified_by]
-    , t.[group_code]
-    , t.[STAN_NA_DZIEN72]
-FROM dbo.DICT_STANZATRUDNIENIANADZIEN1 t
-CROSS APPLY (
-    SELECT dbo.fn_Branza(
-               t.[OBSZAR_KADROWY9],
-               t.[KOD_DZIALALNOSCI_PODST30],
-               t.[POZIOM_3_DLUGA_NAZWA48],
-               t.[POZIOM_6_DLUGA_NAZWA57],
-               t.[STANZUZPUCHW_DLUGA_NAZWA28]
-           ) AS BRANZA
-) AS b;
+    -- WALIDACJE
+    r.cnt AS Liczba_Rekordow_Pracownika,
+    CASE WHEN r.cnt > 1 THEN 1 ELSE 0 END AS Czy_Duplikat_Pracownika,
+
+    CASE
+        WHEN NULLIF(LTRIM(RTRIM(COALESCE(CAST(r.KOD_DZIALALNOSCI_PODST30 AS varchar(50)), ''))), '') IS NULL
+            THEN 1
+        ELSE 0
+    END AS Czy_Brak_Kodu_Dzialalnosci,
+
+    -- jeden tekst, może zawierać oba komunikaty
+    NULLIF(
+        CONCAT(
+            CASE WHEN r.cnt > 1 THEN N'Błąd: duplikat pracownika; ' ELSE N'' END,
+            CASE WHEN NULLIF(LTRIM(RTRIM(COALESCE(CAST(r.KOD_DZIALALNOSCI_PODST30 AS varchar(50)), ''))), '') IS NULL
+                 THEN N'Błąd: brak kodu działalności; ' ELSE N'' END
+        ),
+        N''
+    ) AS Walidacja,
+
+    -- dane osobowe
+    r.NUMER_OSOBOWY1,
+    r.NAZWISKO2,
+    r.IMIE3,
+
+    -- organizacja / struktura
+    r.NR_JEDN_ORG38                      AS Jednostka_Organizacyjna,
+    r.NR_OBSZ_KADR8                      AS Nr_Obszar_Kadrowy,
+    r.OBSZAR_KADROWY9                    AS Obszar_Kadrowy,
+    r.KOD_DZIALALNOSCI_PODST30           AS Kod_Dzialalnosci,
+
+    r.POZIOM_1_ID40                      AS Poziom1_ID,
+    r.POZIOM_1_DLUGA_NAZWA42             AS Poziom1_Nazwa,
+    r.POZIOM_1_SKROT41                   AS Poziom1_Skrot,
+
+    r.POZIOM_2_ID43                      AS Poziom2_ID,
+    r.POZIOM_2_DLUGA_NAZWA45             AS Poziom2_Nazwa,
+    r.POZIOM_2_SKROT44                   AS Poziom2_Skrot,
+
+    r.POZIOM_3_ID46                      AS Poziom3_ID,
+    r.POZIOM_3_DLUGA_NAZWA48             AS Poziom3_Nazwa,
+    r.POZIOM_3_SKROT47                   AS Poziom3_Skrot,
+
+    r.POZIOM_4_ID49                      AS Poziom4_ID,
+    r.POZIOM_4_DLUGA_NAZWA51             AS Poziom4_Nazwa,
+    r.POZIOM_4_SKROT50                   AS Poziom4_Skrot,
+
+    r.POZIOM_5_ID52                      AS Poziom5_ID,
+    r.POZIOM_5_DLUGA_NAZWA54             AS Poziom5_Nazwa,
+    r.POZIOM_5_SKROT53                   AS Poziom5_Skrot,
+
+    CAST(r.POZIOM_6_ID55 AS bigint)      AS Poziom6_ID,
+    r.POZIOM_6_DLUGA_NAZWA57             AS Poziom6_Nazwa,
+    r.POZIOM_6_SKROT56                   AS Poziom6_Skrot,
+
+    CASE
+        WHEN UPPER(LTRIM(RTRIM(COALESCE(r.OBSZAR_KADROWY9,'')))) LIKE 'IZ%' THEN N'Zakład'
+        ELSE N'Pozostałe'
+    END AS Typ_Jednostki,
+
+    -- Branża uproszczona: jeżeli kod brak -> NULL (a informacja jest w walidacji)
+    CASE
+        WHEN NULLIF(LTRIM(RTRIM(COALESCE(CAST(r.KOD_DZIALALNOSCI_PODST30 AS varchar(50)), ''))), '') IS NULL
+            THEN NULL
+
+        WHEN LEFT(k.kod_norm, 1) = '0' THEN N'Administracja'
+        WHEN LEFT(k.kod_norm, 2) IN ('21','22','23') THEN N'Utrzymanie i diagnostyka drogi kolejowej'
+        WHEN LEFT(k.kod_norm, 2) = '24' THEN N'Utrzymanie i diagnostyka energetyki'
+        WHEN LEFT(k.kod_norm, 2) IN ('25','26') THEN N'Utrzymanie i diagnostyka automatyki i telekomunikacji'
+        WHEN LEFT(k.kod_norm, 3) IN ('271','272') THEN N'Inżynieria ruchu'
+        WHEN LEFT(k.kod_norm, 3) = '273' THEN N'Dyspozytorzy'
+        WHEN LEFT(k.kod_norm, 1) IN ('5','6') THEN N'Działalność dodatkowa'
+        ELSE NULL
+    END AS Branza_Uproszczona,
+
+    CAST(r.STAN_NA_DZIEN72 AS datetime2(3)) AS Stan_Na_Dzien
+
+FROM OneRowPerEmployee r
+OUTER APPLY (
+    SELECT
+        kod_norm = REPLACE(REPLACE(LTRIM(RTRIM(COALESCE(CAST(r.KOD_DZIALALNOSCI_PODST30 AS varchar(50)), ''))), '.', ''), ' ', '')
+) k;
 GO
