@@ -114,3 +114,127 @@ WHERE
     -- AND NULLIF(LTRIM(RTRIM(COALESCE(r.POZIOM_6_DLUGA_NAZWA57,''))), '') IS NOT NULL
 ;
 GO
+
+
+
+------------------------------------------------------------------------------------------------------------------------------------------
+
+------------------------------------------------------------------------------------------------------------------------------------------
+CREATE OR ALTER VIEW dbo.BI_D_Pracownik
+AS
+WITH Latest AS (
+    SELECT MAX(CAST(STAN_NA_DZIEN72 AS datetime2(3))) AS MaxStan
+    FROM AZD.dbo.DICT_STANZATRUDNIENIANADZIEN1
+    WHERE STAN_NA_DZIEN72 IS NOT NULL
+),
+Base AS (
+    SELECT a.*
+    FROM AZD.dbo.DICT_STANZATRUDNIENIANADZIEN1 a
+    CROSS JOIN Latest l
+    WHERE a.STAN_NA_DZIEN72 = l.MaxStan
+),
+Ranked AS (
+    SELECT
+        a.*,
+        ROW_NUMBER() OVER (
+            PARTITION BY a.NR_OSOB0
+            ORDER BY a.record_id DESC
+        ) AS rn,
+        COUNT(*) OVER (PARTITION BY a.NR_OSOB0) AS cnt
+    FROM Base a
+    WHERE a.NR_OSOB0 IS NOT NULL
+)
+SELECT
+    -- 2 nowe kolumny NA POCZĄTKU
+    x.BRANZA_AUTO,
+    y.STANOWISKO_AUTO,
+
+    -- klucz
+    CAST(r.NR_OSOB0 AS bigint)                 AS Numer_Osobowy,
+
+    -- WALIDACJE
+    r.cnt AS Liczba_Rekordow_Pracownika,
+    CASE WHEN r.cnt > 1 THEN 1 ELSE 0 END      AS Czy_Duplikat_Pracownika,
+
+    CASE
+        WHEN NULLIF(LTRIM(RTRIM(COALESCE(CAST(r.KOD_DZIALALNOSCI_PODST30 AS nvarchar(50)), N''))), N'') IS NULL
+            THEN 1
+        ELSE 0
+    END                                        AS Czy_Brak_Kodu_Dzialalnosci,
+
+    CASE
+        WHEN NULLIF(LTRIM(RTRIM(COALESCE(CAST(x.BRANZA_AUTO AS nvarchar(200)), N''))), N'') IS NULL
+            THEN 1
+        ELSE 0
+    END                                        AS Czy_Brak_Branzy,
+
+    NULLIF(
+        CONCAT(
+            CASE WHEN r.cnt > 1 THEN N'Błąd: duplikat pracownika; ' ELSE N'' END,
+            CASE
+                WHEN NULLIF(LTRIM(RTRIM(COALESCE(CAST(r.KOD_DZIALALNOSCI_PODST30 AS nvarchar(50)), N''))), N'') IS NULL
+                    THEN N'Błąd: brak kodu działalności; '
+                ELSE N''
+            END,
+            CASE
+                WHEN NULLIF(LTRIM(RTRIM(COALESCE(CAST(x.BRANZA_AUTO AS nvarchar(200)), N''))), N'') IS NULL
+                    THEN N'Błąd: brak branży; '
+                ELSE N''
+            END
+        ),
+        N''
+    )                                           AS Walidacja,
+
+    -- dane pracownika
+    CAST(r.NAZWISKO2 AS nvarchar(200))          AS Nazwisko,
+    CAST(r.IMIE3 AS nvarchar(200))              AS Imie,
+    CAST(r.PLEC4 AS nvarchar(20))               AS Plec,
+    CAST(r.WIEK_PRACOWNIKA7 AS int)             AS Wiek,
+
+    CAST(r.NR_OBSZ_KADR8 AS bigint)             AS Nr_Obszar_Kadrowy,
+    CAST(r.OBSZAR_KADROWY9 AS nvarchar(200))    AS Obszar_Kadrowy,
+
+    CAST(r.STATUS_ZATRUDNIENIA11 AS nvarchar(200))   AS Status_Zatrudnienia,
+    CAST(r.STATUS_WEDLUG_KLIENTA13 AS nvarchar(200)) AS Status_Wg_Klienta,
+
+    CAST(r.GRUPA_PRACOWNIKOW15 AS nvarchar(200))     AS Grupa_Pracownika,
+    CAST(r.KOD_PGR_PR16 AS nvarchar(50))             AS Kod_Podgrupa_Pracownicza,
+    CAST(r.PODGRUPA_PRACOWNIKOW17 AS nvarchar(200))  AS Podgrupa_Pracownicza,
+
+    CAST(r.D_ROZP_PRACY63 AS date)               AS Data_Rozpoczecia_Pracy,
+
+    CAST(r.NR_STANOWISKA26 AS bigint)            AS Nr_Stanowiska,
+    CAST(r.STANOWISKO27 AS nvarchar(255))        AS Stanowisko,
+
+    CAST(r.KOD_DZIALALNOSCI_PODST30 AS nvarchar(50)) AS Kod_Dzialalnosci,
+
+    CAST(r.STAN_NA_DZIEN72 AS datetime2(3))      AS Stan_Na_Dzien
+
+FROM Ranked r
+OUTER APPLY (
+    SELECT dbo.fn_Branza(
+        r.OBSZAR_KADROWY9,
+        r.KOD_DZIALALNOSCI_PODST30,
+        r.POZIOM_3_DLUGA_NAZWA48,
+        r.POZIOM_6_DLUGA_NAZWA57,
+        r.STANZUZPUCHW_DLUGA_NAZWA28
+    ) AS BRANZA_AUTO
+) x
+OUTER APPLY (
+    SELECT dbo.fn_StanowiskoBI(
+        x.BRANZA_AUTO,
+        r.OBSZAR_KADROWY9,
+        r.KOD_DZIALALNOSCI_PODST30,
+        r.POZIOM_3_DLUGA_NAZWA48,
+        r.POZIOM_6_DLUGA_NAZWA57,
+        r.STANZUZPUCHW_DLUGA_NAZWA28,
+        r.STANOWISKO27
+    ) AS STANOWISKO_AUTO
+) y
+WHERE
+    r.rn = 1
+    AND r.POZIOM_6_ID55 IS NOT NULL
+    -- opcjonalnie (jeśli zdarzają się “puste” opisy mimo ID):
+    -- AND NULLIF(LTRIM(RTRIM(COALESCE(r.POZIOM_6_DLUGA_NAZWA57, N''))), N'') IS NOT NULL
+;
+GO
