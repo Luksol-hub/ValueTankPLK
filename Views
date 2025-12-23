@@ -152,7 +152,7 @@ SELECT
     -- klucz
     CAST(r.NR_OSOB0 AS bigint)                 AS Numer_Osobowy,
 
-    -- WALIDACJE
+    -- WALIDACJE (liczniki/flag)
     r.cnt AS Liczba_Rekordow_Pracownika,
     CASE WHEN r.cnt > 1 THEN 1 ELSE 0 END      AS Czy_Duplikat_Pracownika,
 
@@ -168,17 +168,41 @@ SELECT
         ELSE 0
     END                                        AS Czy_Brak_Branzy,
 
+    CASE
+        WHEN
+            -- branża jest ustawiona
+            NULLIF(LTRIM(RTRIM(COALESCE(CAST(x.BRANZA_AUTO AS nvarchar(200)), N''))), N'') IS NOT NULL
+            -- branża nie jest centralą/ID/IG/IM/IN/IO/IR
+            AND CAST(x.BRANZA_AUTO AS nvarchar(200)) NOT IN (N'Centrala', N'ID', N'IG', N'IM', N'IN', N'IO', N'IR')
+            -- stanowisko_auto puste
+            AND NULLIF(LTRIM(RTRIM(COALESCE(CAST(y.STANOWISKO_AUTO AS nvarchar(255)), N''))), N'') IS NULL
+        THEN 1
+        ELSE 0
+    END                                        AS Czy_Brak_Stanowiska_Auto,
+
+    -- WALIDACJA tekstowa (z rozróżnieniem)
     NULLIF(
         CONCAT(
             CASE WHEN r.cnt > 1 THEN N'Błąd: duplikat pracownika; ' ELSE N'' END,
+
             CASE
                 WHEN NULLIF(LTRIM(RTRIM(COALESCE(CAST(r.KOD_DZIALALNOSCI_PODST30 AS nvarchar(50)), N''))), N'') IS NULL
                     THEN N'Błąd: brak kodu działalności; '
                 ELSE N''
             END,
+
             CASE
                 WHEN NULLIF(LTRIM(RTRIM(COALESCE(CAST(x.BRANZA_AUTO AS nvarchar(200)), N''))), N'') IS NULL
                     THEN N'Błąd: brak branży; '
+                ELSE N''
+            END,
+
+            CASE
+                WHEN
+                    NULLIF(LTRIM(RTRIM(COALESCE(CAST(x.BRANZA_AUTO AS nvarchar(200)), N''))), N'') IS NOT NULL
+                    AND CAST(x.BRANZA_AUTO AS nvarchar(200)) NOT IN (N'Centrala', N'ID', N'IG', N'IM', N'IN', N'IO', N'IR')
+                    AND NULLIF(LTRIM(RTRIM(COALESCE(CAST(y.STANOWISKO_AUTO AS nvarchar(255)), N''))), N'') IS NULL
+                THEN N'Błąd: brak stanowiska auto; '
                 ELSE N''
             END
         ),
@@ -233,8 +257,5 @@ OUTER APPLY (
 ) y
 WHERE
     r.rn = 1
-    AND r.POZIOM_6_ID55 IS NOT NULL
-    -- opcjonalnie (jeśli zdarzają się “puste” opisy mimo ID):
-    -- AND NULLIF(LTRIM(RTRIM(COALESCE(r.POZIOM_6_DLUGA_NAZWA57, N''))), N'') IS NOT NULL
-;
+    AND r.POZIOM_6_ID55 IS NOT NULL;
 GO
