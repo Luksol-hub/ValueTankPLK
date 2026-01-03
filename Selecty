@@ -1,7 +1,7 @@
 
-
+-----------------------------------------------------------------------------------------------------------
 -- WSZYSTKIE NIEZGODNOŚCI
-
+-----------------------------------------------------------------------------------------------------------
 ;WITH X AS
 (
     SELECT
@@ -88,3 +88,67 @@ ORDER BY
     NIEZGODNOSC_STANOWISKO DESC,
     X.BRANZA_RECZNA_N,
     X.NUMER_PERSONALNY;
+
+
+-----------------------------------------------------------------------------------------------------------
+-- Nadgodziny
+-----------------------------------------------------------------------------------------------------------
+;WITH src AS
+(
+    SELECT
+        t.NR_OSOB0,
+        DzienRozliczeniowy =
+            DATEADD(day,
+                CASE WHEN DAY(t.DATA4)=1 AND t.WSK_POPRZ_DNIA8='X' THEN -1 ELSE 0 END,
+                CAST(t.DATA4 AS date)
+            ),
+        t.KOD_NBOB2,
+        t.GODZ7,
+        t.record_id,
+        CompletenessScore =
+              CASE WHEN t.POSTERUNEK_ID13 IS NOT NULL THEN 1 ELSE 0 END
+            + CASE WHEN t.POZIOM_1_ID31   IS NOT NULL THEN 1 ELSE 0 END
+            + CASE WHEN t.POZIOM_2_ID10   IS NOT NULL THEN 1 ELSE 0 END
+            + CASE WHEN t.POZIOM_3_ID27   IS NOT NULL THEN 1 ELSE 0 END
+            + CASE WHEN t.POZIOM_4_ID29   IS NOT NULL THEN 1 ELSE 0 END
+            + CASE WHEN t.POZIOM_6_ID15   IS NOT NULL THEN 1 ELSE 0 END
+    FROM [dbo].[DICT_IT20021] t
+    WHERE t.current_flag = 'Y'
+      AND t.KOD_NBOB2 <> 901
+),
+dedup AS
+(
+    SELECT *
+    FROM
+    (
+        SELECT
+            s.*,
+            rn = ROW_NUMBER() OVER (
+                PARTITION BY s.NR_OSOB0, s.DzienRozliczeniowy, s.KOD_NBOB2, s.GODZ7
+                ORDER BY s.CompletenessScore DESC, s.record_id DESC
+            )
+        FROM src s
+    ) q
+    WHERE q.rn = 1
+),
+month_sum AS
+(
+    SELECT
+        NR_OSOB0,
+        MiesiacSort = DATEFROMPARTS(YEAR(DzienRozliczeniowy), MONTH(DzienRozliczeniowy), 1),
+        RokMiesiac  = CONVERT(char(7), DzienRozliczeniowy, 120),
+        Nadgodziny  = SUM(GODZ7)
+    FROM dedup
+    GROUP BY
+        NR_OSOB0,
+        DATEFROMPARTS(YEAR(DzienRozliczeniowy), MONTH(DzienRozliczeniowy), 1),
+        CONVERT(char(7), DzienRozliczeniowy, 120)
+)
+SELECT
+    NR_OSOB0,
+    RokMiesiac,
+    Nadgodziny
+FROM month_sum
+ORDER BY
+    MiesiacSort,   -- najpierw miesiąc rosnąco
+    NR_OSOB0;      -- potem pracownik
