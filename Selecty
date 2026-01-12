@@ -93,6 +93,7 @@ ORDER BY
 -----------------------------------------------------------------------------------------------------------
 -- Nadgodziny
 -----------------------------------------------------------------------------------------------------------
+
 ;WITH src AS
 (
     SELECT
@@ -163,15 +164,36 @@ month_sum AS
         NR_OSOB0,
         czy_stazysta,
 
-        MiesiacSort = DATEFROMPARTS(
-            YEAR(DzienRozliczeniowy),
-            MONTH(DzienRozliczeniowy),
-            1
-        ),
+        MiesiacSort =
+            DATEFROMPARTS(YEAR(DzienRozliczeniowy), MONTH(DzienRozliczeniowy), 1),
 
-        RokMiesiac = CONVERT(char(7), DzienRozliczeniowy, 120),
+        RokMiesiac =
+            CONVERT(char(7), DzienRozliczeniowy, 120),
 
-        Nadgodziny = SUM(GODZ7)
+        -- suma godzin
+        Nadgodziny_Surowe = SUM(GODZ7),
+
+        -- >>> KOREKTY CZASU <<<
+        Korekta_Zmiana_Czasu =
+            SUM(
+                CASE
+                    WHEN DzienRozliczeniowy = '2025-03-30' THEN -1
+                    WHEN DzienRozliczeniowy = '2025-10-26' THEN  1
+                    ELSE 0
+                END
+            ),
+
+        -- >>> FLAGI INFORMACYJNE <<<
+        czy_zmiana_czasu_minus =
+            MAX(
+                CASE WHEN DzienRozliczeniowy = '2025-03-30' THEN 1 ELSE 0 END
+            ),
+
+        czy_zmiana_czasu_plus =
+            MAX(
+                CASE WHEN DzienRozliczeniowy = '2025-10-26' THEN 1 ELSE 0 END
+            )
+
     FROM dedup
     GROUP BY
         NR_OSOB0,
@@ -184,9 +206,17 @@ SELECT
     NR_OSOB0,
     RokMiesiac,
     czy_stazysta,
-    Nadgodziny
+
+    Nadgodziny_Surowe,
+    Korekta_Zmiana_Czasu,
+
+    Nadgodziny_Surowe + Korekta_Zmiana_Czasu AS Nadgodziny_Po_Korekcie,
+
+    czy_zmiana_czasu_minus,
+    czy_zmiana_czasu_plus
 FROM month_sum
 ORDER BY
     MiesiacSort,
     NR_OSOB0;
+
 
