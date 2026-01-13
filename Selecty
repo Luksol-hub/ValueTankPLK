@@ -220,3 +220,57 @@ ORDER BY
     NR_OSOB0;
 
 
+-----------------------------------------------------------------------------------------------------------
+-- Urlopy wypoczynkowe
+-----------------------------------------------------------------------------------------------------------
+
+
+
+
+	WITH Agregaty AS (
+    SELECT
+        NUMER_OSOBOWY0                    AS FK_Numer_Osobowy,
+        YEAR(DATA_W_OKRESIE38)           AS Rok,
+        MONTH(DATA_W_OKRESIE38)          AS Miesiąc,
+        OPIS_NIEOBECNOSCI32              AS Rodzaj_Nieobecnosci,
+        SUM(GODZINY_W_OKRESIE42)         AS Suma_Godzin
+    FROM [AZD].[dbo].[DICT_ZHRPT009UWUDPN1]
+    GROUP BY
+        NUMER_OSOBOWY0,
+        YEAR(DATA_W_OKRESIE38),
+        MONTH(DATA_W_OKRESIE38),
+        OPIS_NIEOBECNOSCI32
+),
+Flagi AS (
+    SELECT
+        FK_Numer_Osobowy,
+        Rok,
+        Miesiąc,
+        CASE
+            WHEN COUNT(*) > 1 THEN 1
+            ELSE 0
+        END AS Miesiac_Przejsciowy
+    FROM Agregaty
+    GROUP BY
+        FK_Numer_Osobowy,
+        Rok,
+        Miesiąc
+)
+SELECT
+    a.FK_Numer_Osobowy,
+    a.Rok,
+    a.Miesiąc,
+    a.Rodzaj_Nieobecnosci,
+    a.Suma_Godzin                              AS Godziny,
+    a.Suma_Godzin / 8.0                        AS Dni,
+    f.Miesiac_Przejsciowy
+FROM Agregaty a
+JOIN Flagi f
+  ON f.FK_Numer_Osobowy = a.FK_Numer_Osobowy
+ AND f.Rok = a.Rok
+ AND f.Miesiąc = a.Miesiąc
+ORDER BY
+    a.FK_Numer_Osobowy,
+    a.Rok,
+    a.Miesiąc,
+    a.Rodzaj_Nieobecnosci;
