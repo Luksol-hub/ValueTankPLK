@@ -914,3 +914,157 @@ OUTER APPLY (
 WHERE
     r.rn = 1;
 GO
+
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------
+
+-----------------------------------------------------------------------------------------------------------------------------------------------
+
+
+CREATE VIEW [dbo].[BI_F_Zatrudnienie_Snapshot_SCD]
+AS
+WITH S AS (
+    SELECT
+        r.*,
+        DATEFROMPARTS(YEAR(r.STAN_NA_DZIEN72), MONTH(r.STAN_NA_DZIEN72), 1) AS Miesiac,
+        ROW_NUMBER() OVER (
+            PARTITION BY r.NR_OSOB0, DATEFROMPARTS(YEAR(r.STAN_NA_DZIEN72), MONTH(r.STAN_NA_DZIEN72), 1)
+            ORDER BY r.record_id DESC
+        ) AS rn_miesiac,
+        COUNT(*) OVER (
+            PARTITION BY r.NR_OSOB0, DATEFROMPARTS(YEAR(r.STAN_NA_DZIEN72), MONTH(r.STAN_NA_DZIEN72), 1)
+        ) AS cnt_miesiac
+    FROM [AZD].[dbo].[DICT_STANZATRUDNIENIANADZIEN1] r
+    WHERE r.NR_OSOB0 IS NOT NULL
+      AND r.STAN_NA_DZIEN72 IS NOT NULL
+      AND r.POZIOM_6_ID55 IS NOT NULL
+)
+SELECT
+    -- dane “snapshotowe”
+    CAST(s.STAN_NA_DZIEN72 AS date)                         AS Data_Stanu,
+    CAST(s.Miesiac AS date)                                 AS Miesiac,
+
+    /* =====================================================
+       KLUCZ SKLEJANY (JEDYNA ZMIANA)
+       ===================================================== */
+    CAST(
+        CONCAT(
+            s.NR_OSOB0,
+            FORMAT(YEAR(s.STAN_NA_DZIEN72), '0000'),
+            FORMAT(MONTH(s.STAN_NA_DZIEN72), '00')
+        ) AS BIGINT
+    )                                                       AS FK_Pracownik_Miesiac_Key,
+
+    TRY_CAST(s.NR_OSOB0 AS bigint)                          AS FK_Numer_Osobowy,
+
+    TRY_CAST(s.POZIOM_6_ID55 AS bigint)                     AS FK_Poziom6_ID,
+    CAST(s.POZIOM_6_DLUGA_NAZWA57 AS nvarchar(255))         AS Poziom6_Nazwa,
+
+    TRY_CAST(s.NR_STANOWISKA26 AS bigint)                   AS FK_ID_Stanowiska,
+    CAST(s.STANOWISKO27 AS nvarchar(255))                   AS Stanowisko_Nazwa,
+    CAST(s.STANZUZPUCHW_DLUGA_NAZWA28 AS nvarchar(255))      AS Stanowisko_ZUZP,
+
+    TRY_CAST(s.POSTERUNEK_ID58 AS bigint)                   AS FK_ID_Posterunku,
+    CAST(s.POSTERUNEK_DLUGA_NAZWA59 AS nvarchar(255))       AS Posterunek_Nazwa,
+
+    TRY_CAST(s.WYMET_25 AS decimal(18,4))                   AS Wymiar_Etatu_Procent,
+
+    CAST(s.D_ROZP_PRACY63 AS date)                          AS Data_Rozpoczęcia_Pracy,
+    CAST(s.KON_UMOWY65 AS date)                             AS Data_Końca_Umowy,
+
+    TRY_CAST(s.KOD_STAT_WG_ZATR10 AS bigint)                AS Kod_Status_Zatrudnienia,
+    CAST(s.STATUS_ZATRUDNIENIA11 AS nvarchar(255))          AS Status_Zatrudnienia,
+
+    TRY_CAST(s.KOD_STAT_WG_KLIENTA12 AS bigint)             AS Kod_Status_Klienta,
+    CAST(s.STATUS_WEDLUG_KLIENTA13 AS nvarchar(255))        AS Status_Według_Klienta,
+
+    CAST(s.KOD_GR_PRAC14 AS nvarchar(50))                   AS Kod_Grupa_Pracowników,
+    CAST(s.GRUPA_PRACOWNIKOW15 AS nvarchar(255))            AS Grupa_Pracowników,
+
+    CAST(s.KOD_PGR_PR16 AS nvarchar(50))                    AS Kod_Podgrupa_Pracowników,
+    CAST(s.PODGRUPA_PRACOWNIKOW17 AS nvarchar(255))         AS Podgrupa_Pracowników,
+
+    CAST(s.RODZAJ_UMOWY62 AS nvarchar(255))                 AS Rodzaj_Umowy,
+
+    CAST(s.KOD_RODZ_ZDARZ19 AS nvarchar(50))                AS Kod_Rodzaj_Zdarzenia,
+    CAST(s.RODZAJ_ZDARZENIA20 AS nvarchar(255))             AS Rodzaj_Zdarzenia,
+
+    CAST(s.KOD_POW_ZDARZ21 AS nvarchar(50))                 AS Kod_Powód_Zdarzenia,
+    CAST(s.POWOD_ZDARZENIA22 AS nvarchar(255))              AS Powód_Zdarzenia,
+
+    CAST(s.KOD_DZIALALNOSCI_PODST30 AS nvarchar(50))        AS Kod_Działalności,
+    CAST(s.DZIALALNOSC_PODST31 AS nvarchar(255))            AS Działalność_Podst,
+
+    TRY_CAST(s.LICZBA23 AS bigint)                          AS Liczba,
+
+    x.BRANZA_AUTO                                           AS BRANZA_AUTO,
+    y.STANOWISKO_AUTO                                       AS STANOWISKO_AUTO,
+
+    -- WALIDACJE (miesięczne)
+    s.cnt_miesiac                                           AS Liczba_Rekordow_Pracownika_W_Miesiacu,
+    CASE WHEN s.cnt_miesiac > 1 THEN 1 ELSE 0 END           AS Czy_Duplikat_Pracownika_W_Miesiacu,
+
+    CASE
+        WHEN NULLIF(LTRIM(RTRIM(COALESCE(CAST(s.KOD_DZIALALNOSCI_PODST30 AS nvarchar(50)), N''))), N'') IS NULL
+            THEN 1 ELSE 0
+    END                                                     AS Czy_Brak_Kodu_Dzialalnosci,
+
+    CASE
+        WHEN NULLIF(LTRIM(RTRIM(COALESCE(CAST(x.BRANZA_AUTO AS nvarchar(200)), N''))), N'') IS NULL
+            THEN 1 ELSE 0
+    END                                                     AS Czy_Brak_Branzy,
+
+    CASE
+        WHEN
+            NULLIF(LTRIM(RTRIM(COALESCE(CAST(x.BRANZA_AUTO AS nvarchar(200)), N''))), N'') IS NOT NULL
+            AND CAST(x.BRANZA_AUTO AS nvarchar(200)) NOT IN (N'Centrala', N'ID', N'IG', N'IM', N'IN', N'IO', N'IR')
+            AND NULLIF(LTRIM(RTRIM(COALESCE(CAST(y.STANOWISKO_AUTO AS nvarchar(255)), N''))), N'') IS NULL
+        THEN 1 ELSE 0
+    END                                                     AS Czy_Brak_Stanowiska_Auto,
+
+    -- WALIDACJA tekstowa (miesięczna)
+    NULLIF(
+        CONCAT(
+            CASE WHEN s.cnt_miesiac > 1 THEN N'Błąd: duplikat pracownika w miesiącu; ' ELSE N'' END,
+            CASE
+                WHEN NULLIF(LTRIM(RTRIM(COALESCE(CAST(s.KOD_DZIALALNOSCI_PODST30 AS nvarchar(50)), N''))), N'') IS NULL
+                    THEN N'Błąd: brak kodu działalności; '
+                ELSE N'' END,
+            CASE
+                WHEN NULLIF(LTRIM(RTRIM(COALESCE(CAST(x.BRANZA_AUTO AS nvarchar(200)), N''))), N'') IS NULL
+                    THEN N'Błąd: brak branży; '
+                ELSE N'' END,
+            CASE
+                WHEN
+                    NULLIF(LTRIM(RTRIM(COALESCE(CAST(x.BRANZA_AUTO AS nvarchar(200)), N''))), N'') IS NOT NULL
+                    AND CAST(x.BRANZA_AUTO AS nvarchar(200)) NOT IN (N'Centrala', N'ID', N'IG', N'IM', N'IN', N'IO', N'IR')
+                    AND NULLIF(LTRIM(RTRIM(COALESCE(CAST(y.STANOWISKO_AUTO AS nvarchar(255)), N''))), N'') IS NULL
+                THEN N'Błąd: brak stanowiska auto; '
+                ELSE N'' END
+        ),
+        N''
+    )                                                       AS Walidacja
+FROM S s
+OUTER APPLY (
+    SELECT dbo.fn_Branza(
+        s.OBSZAR_KADROWY9,
+        s.KOD_DZIALALNOSCI_PODST30,
+        s.POZIOM_3_DLUGA_NAZWA48,
+        s.POZIOM_6_DLUGA_NAZWA57,
+        s.STANZUZPUCHW_DLUGA_NAZWA28
+    ) AS BRANZA_AUTO
+) x
+OUTER APPLY (
+    SELECT dbo.fn_StanowiskoBI(
+        x.BRANZA_AUTO,
+        s.OBSZAR_KADROWY9,
+        s.KOD_DZIALALNOSCI_PODST30,
+        s.POZIOM_3_DLUGA_NAZWA48,
+        s.POZIOM_6_DLUGA_NAZWA57,
+        s.STANZUZPUCHW_DLUGA_NAZWA28,
+        s.STANOWISKO27
+    ) AS STANOWISKO_AUTO
+) y
+WHERE s.rn_miesiac = 1;
+GO
