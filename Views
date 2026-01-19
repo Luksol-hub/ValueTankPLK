@@ -1068,3 +1068,195 @@ OUTER APPLY (
 ) y
 WHERE s.rn_miesiac = 1;
 GO
+
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------
+                                    CZAS PRACY
+-----------------------------------------------------------------------------------------------------------------------------------------------
+
+CREATE OR ALTER VIEW dbo.Czas_pracy
+AS
+WITH
+-- =====================================================
+-- 1️⃣ NADGODZINY
+-- =====================================================
+src_godziny AS
+(
+    SELECT
+        t.NR_OSOB0 AS FK_Numer_Osobowy,
+
+        DzienRozliczeniowy =
+            DATEADD(
+                day,
+                CASE
+                    WHEN DAY(t.DATA4) = 1 AND t.WSK_POPRZ_DNIA8 = 'X'
+                        THEN -1
+                    ELSE 0
+                END,
+                CAST(t.DATA4 AS date)
+            ),
+
+        t.KOD_NBOB2,
+        t.GODZ7,
+        t.record_id,
+
+        t.OBSZAR_KADROWY19,
+        t.POZIOM_3_DLUGA_NAZWA28,
+        t.PODOBSZAR_KADROWY26,
+        t.KOD_DZIALALNOSCI_PODST33,
+
+        czy_stazysta =
+            CASE
+                WHEN t.KOD_DZIALALNOSCI_PODST33 IN ('6.7.6.1','6.7.6.2','6.7.6.3')
+                    THEN 1
+                ELSE 0
+            END,
+
+        CompletenessScore =
+              CASE WHEN t.POSTERUNEK_ID13 IS NOT NULL THEN 1 ELSE 0 END
+            + CASE WHEN t.POZIOM_1_ID31   IS NOT NULL THEN 1 ELSE 0 END
+            + CASE WHEN t.POZIOM_2_ID10   IS NOT NULL THEN 1 ELSE 0 END
+            + CASE WHEN t.POZIOM_3_ID27   IS NOT NULL THEN 1 ELSE 0 END
+            + CASE WHEN t.POZIOM_4_ID29   IS NOT NULL THEN 1 ELSE 0 END
+            + CASE WHEN t.POZIOM_6_ID15   IS NOT NULL THEN 1 ELSE 0 END
+    FROM dbo.DICT_IT20021 t
+    WHERE t.current_flag = 'Y'
+      AND t.KOD_NBOB2 <> 901
+),
+
+dedup_godziny AS
+(
+    SELECT *
+    FROM (
+        SELECT
+            s.*,
+            rn = ROW_NUMBER() OVER (
+                PARTITION BY
+                    s.FK_Numer_Osobowy,
+                    s.DzienRozliczeniowy,
+                    s.KOD_NBOB2,
+                    s.GODZ7,
+                    s.czy_stazysta
+                ORDER BY
+                    s.CompletenessScore DESC,
+                    s.record_id DESC
+            )
+        FROM src_godziny s
+    ) q
+    WHERE rn = 1
+),
+
+godziny_month_sum AS
+(
+    SELECT
+        FK_Numer_Osobowy,
+        Rok     = YEAR(DzienRozliczeniowy),
+        Miesiac = MONTH(DzienRozliczeniowy),
+
+        Obszar_Kadrowy    = OBSZAR_KADROWY19,
+        Poziom3_Nazwa     = POZIOM_3_DLUGA_NAZWA28,
+        Podobszar_Kadrowy = PODOBSZAR_KADROWY26,
+        Kod_Dzialalnosci  = KOD_DZIALALNOSCI_PODST33,
+
+        Godziny_Nadliczbowe =
+            SUM(GODZ7)
+            + SUM(
+                CASE
+                    WHEN DzienRozliczeniowy = '2025-03-30' THEN -1
+                    WHEN DzienRozliczeniowy = '2025-10-26' THEN  1
+                    ELSE 0
+                END
+            )
+    FROM dedup_godziny
+    GROUP BY
+        FK_Numer_Osobowy,
+        YEAR(DzienRozliczeniowy),
+        MONTH(DzienRozliczeniowy),
+        OBSZAR_KADROWY19,
+        POZIOM_3_DLUGA_NAZWA28,
+        PODOBSZAR_KADROWY26,
+        KOD_DZIALALNOSCI_PODST33
+),
+
+-- =====================================================
+-- 2️⃣ NIEOBECNOŚCI
+-- =====================================================
+nieob_src AS
+(
+    SELECT
+        NUMER_OSOBOWY0 AS FK_Numer_Osobowy,
+        Rok     = CAST(LEFT(ROKMIESIAC45, 4) AS int),
+        Miesiac = CAST(RIGHT(ROKMIESIAC45, 2) AS int),
+        RODZ_NIEOBOBECN31,
+        GODZINY_NIEOBECNOSCI37
+    FROM AZD.dbo.DICT_ZHRPT009UWUDPN1
+    WHERE current_flag = 'Y'
+),
+
+nieob_month_sum AS
+(
+    SELECT
+        FK_Numer_Osobowy,
+        Rok,
+        Miesiac,
+
+        Choroby =
+            SUM(
+                CASE
+                    WHEN RODZ_NIEOBOBECN31 IN (
+                        'OP25','OPO','OP','OC','CWPP','CWDP','CH','CDAW'
+                    )
+                    THEN GODZINY_NIEOBECNOSCI37
+                    ELSE 0
+                END
+            ),
+
+        Szkolenia =
+            SUM(
+                CASE
+                    WHEN RODZ_NIEOBOBECN31 IN (
+                        'SZP1','SZ','PO','DESZ','DEPO'
+                    )
+                    THEN GODZINY_NIEOBECNOSCI37
+                    ELSE 0
+                END
+            )
+    FROM nieob_src
+    GROUP BY
+        FK_Numer_Osobowy,
+        Rok,
+        Miesiac
+)
+
+-- =====================================================
+-- 3️⃣ FINAL
+-- =====================================================
+SELECT
+    Pracownik_Key =
+        CAST(
+            CONCAT(
+                g.FK_Numer_Osobowy,
+                FORMAT(g.Rok, '0000'),
+                FORMAT(g.Miesiac, '00')
+            ) AS BIGINT
+        ),
+
+    g.FK_Numer_Osobowy,
+    g.Rok,
+    g.Miesiac,
+
+    g.Godziny_Nadliczbowe,
+    ISNULL(n.Choroby, 0)   AS Choroby,
+    ISNULL(n.Szkolenia, 0) AS Szkolenia,
+
+    g.Obszar_Kadrowy,
+    g.Poziom3_Nazwa,
+    g.Podobszar_Kadrowy,
+    g.Kod_Dzialalnosci
+FROM godziny_month_sum g
+LEFT JOIN nieob_month_sum n
+    ON  n.FK_Numer_Osobowy = g.FK_Numer_Osobowy
+    AND n.Rok             = g.Rok
+    AND n.Miesiac         = g.Miesiac;
+GO
