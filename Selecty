@@ -240,9 +240,9 @@ WITH Base AS (
 )
 
 SELECT
-    CAST(b.[NUMER_OSOBOWY0] AS BIGINT) AS [Numer osobowy],
+    CAST(b.[NUMER_OSOBOWY0] AS BIGINT) AS [FK_Numer_Osobowy],
     b.[ROKMIESIAC46]                   AS [Rok-miesiąc],
-    b.[KOD_DZIALALN_PODST29]           AS [Kod działaln. podst.],
+    b.[KOD_DZIALALN_PODST29]          AS [Kod_Dzialalnosci],
 
     /* URLOP ZALEGŁY */
     (
@@ -258,7 +258,7 @@ SELECT
                   AND x.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
                   AND x.[TYP_LIMITU_NIEOBECN30] IN (88,61,27,22,20)
           )
-    ) AS [URLOP ZALEGŁY],
+    ) AS [UW_Limit_Zalegly],
 
     /* URLOP BIEŻĄCY */
     (
@@ -274,7 +274,7 @@ SELECT
                   AND x.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
                   AND x.[TYP_LIMITU_NIEOBECN30] IN (88,61,27,22,20)
           )
-    ) AS [URLOP BIEŻĄCY],
+    ) AS [UW_Limit_Biezacy],
 
     /* WYKORZYSTANIE ZALEGŁY */
     (
@@ -290,7 +290,7 @@ SELECT
                   AND x.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
                   AND x.[TYP_LIMITU_NIEOBECN30] IN (88,61,27,22,20)
           )
-    ) AS [wykorzystanie_URLOP ZALEGŁY],
+    ) AS [UW_Wyk_Zalegly_Natura],
 
     /* WYKORZYSTANIE BIEŻĄCY */
     (
@@ -306,7 +306,7 @@ SELECT
                   AND x.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
                   AND x.[TYP_LIMITU_NIEOBECN30] IN (88,61,27,22,20)
           )
-    ) AS [wykorzystanie_URLOP BIEŻĄCY],
+    ) AS  [UW_Wyk_Biezacy_Natura],
 
     /* EKWIWALENT ZALEGŁY */
     (
@@ -322,7 +322,7 @@ SELECT
                   AND x.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
                   AND x.[TYP_LIMITU_NIEOBECN30] IN (88,61,27,22,20)
           )
-    ) AS [ekwiwalent_URLOP ZALEGŁY],
+    ) AS [UW_Wyk_Zalegly_Ekwiwalent],
 
     /* EKWIWALENT BIEŻĄCY */
     (
@@ -338,7 +338,7 @@ SELECT
                   AND x.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
                   AND x.[TYP_LIMITU_NIEOBECN30] IN (88,61,27,22,20)
           )
-    ) AS [ekwiwalent_URLOP BIEŻĄCY]
+    ) AS [UW_Wyk_Biezacy_Ekwiwalent]
 
 FROM Base b
 ORDER BY
