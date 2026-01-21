@@ -344,3 +344,131 @@ FROM Base b
 ORDER BY
     b.[NUMER_OSOBOWY0],
     b.[ROKMIESIAC46];
+
+
+
+-----------------------------------------------------------------------------------------------------------
+-- Urlopy wypoczynkowe
+-----------------------------------------------------------------------------------------------------------
+
+WITH Base AS (
+    SELECT
+        t.[NUMER_OSOBOWY0],
+        t.[ROKMIESIAC46],
+        t.[KOD_DZIALALN_PODST29]
+    FROM [AZD].[dbo].[DICT_ZHRPT010UW1] t
+    WHERE EXISTS (
+        SELECT 1
+        FROM [AZD].[dbo].[DICT_ZHRPT010UW1] w
+        WHERE w.[NUMER_OSOBOWY0] = t.[NUMER_OSOBOWY0]
+          AND w.[ZESTAWIENIA_NA_ROK34] IS NOT NULL
+          AND w.[WYMIAR_NA_PIERWSZY_STYCZNIA40] > 0
+          AND w.[TYP_LIMITU_NIEOBECN30] IN (12, 13)
+    )
+    GROUP BY
+        t.[NUMER_OSOBOWY0],
+        t.[ROKMIESIAC46],
+        t.[KOD_DZIALALN_PODST29]
+)
+SELECT
+    CAST(b.[NUMER_OSOBOWY0] AS BIGINT) AS [FK_Numer_Osobowy],
+    b.[ROKMIESIAC46]                   AS [Rok-miesiąc],
+    b.[KOD_DZIALALN_PODST29]            AS [Kod_Dzialalnosci],
+
+    /* ===== LIMIT ZALEGŁY ===== */
+    (
+        SELECT TOP 1 s.[WYMIAR_NA_PIERWSZY_STYCZNIA40]
+        FROM AZD.dbo.DICT_ZHRPT010UW1 s
+        WHERE s.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+          AND s.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+          AND s.[TYP_LIMITU_NIEOBECN30] IN (12, 13)
+          AND s.[ZESTAWIENIA_NA_ROK34] = (
+                SELECT MAX(x.[ZESTAWIENIA_NA_ROK34]) - 1
+                FROM AZD.dbo.DICT_ZHRPT010UW1 x
+                WHERE x.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+                  AND x.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+                  AND x.[TYP_LIMITU_NIEOBECN30] IN (12, 13)
+          )
+    ) AS [UD_Limit_Zalegly],
+
+    /* ===== LIMIT BIEŻĄCY ===== */
+    (
+        SELECT TOP 1 s.[WYMIAR_NA_PIERWSZY_STYCZNIA40]
+        FROM AZD.dbo.DICT_ZHRPT010UW1 s
+        WHERE s.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+          AND s.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+          AND s.[TYP_LIMITU_NIEOBECN30] IN (12, 13)
+          AND s.[ZESTAWIENIA_NA_ROK34] = (
+                SELECT MAX(x.[ZESTAWIENIA_NA_ROK34])
+                FROM AZD.dbo.DICT_ZHRPT010UW1 x
+                WHERE x.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+                  AND x.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+                  AND x.[TYP_LIMITU_NIEOBECN30] IN (12, 13)
+          )
+    ) AS [UD_Limit_Biezacy],
+
+    /* ===== WYKORZYSTANIE ZALEGŁY ===== */
+    (
+        SELECT TOP 1 s.[WYKORZYSTANIE_NATURA_142]
+        FROM AZD.dbo.DICT_ZHRPT010UW1 s
+        WHERE s.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+          AND s.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+          AND s.[TYP_LIMITU_NIEOBECN30] IN (12, 13)
+          AND s.[ZESTAWIENIA_NA_ROK34] = (
+                SELECT MAX(x.[ZESTAWIENIA_NA_ROK34]) - 1
+                FROM AZD.dbo.DICT_ZHRPT010UW1 x
+                WHERE x.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+                  AND x.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+                  AND x.[TYP_LIMITU_NIEOBECN30] IN (12, 13)
+          )
+    ) AS [UD_Wyk_Zalegly_Natura],
+
+    /* ===== WYKORZYSTANIE BIEŻĄCY ===== */
+    (
+        SELECT TOP 1 s.[WYKORZYSTANIE_NATURA_142]
+        FROM AZD.dbo.DICT_ZHRPT010UW1 s
+        WHERE s.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+          AND s.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+          AND s.[TYP_LIMITU_NIEOBECN30] IN (12, 13)
+          AND s.[ZESTAWIENIA_NA_ROK34] = (
+                SELECT MAX(x.[ZESTAWIENIA_NA_ROK34])
+                FROM AZD.dbo.DICT_ZHRPT010UW1 x
+                WHERE x.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+                  AND x.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+                  AND x.[TYP_LIMITU_NIEOBECN30] IN (12, 13)
+          )
+    ) AS [UD_Wyk_Biezacy_Natura],
+
+    /* ===== EKWIWALENT ZALEGŁY ===== */
+    (
+        SELECT TOP 1 s.[WYKORZYSTANIE_EKWIWALENT_143]
+        FROM AZD.dbo.DICT_ZHRPT010UW1 s
+        WHERE s.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+          AND s.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+          AND s.[TYP_LIMITU_NIEOBECN30] IN (12, 13)
+          AND s.[ZESTAWIENIA_NA_ROK34] = (
+                SELECT MAX(x.[ZESTAWIENIA_NA_ROK34]) - 1
+                FROM AZD.dbo.DICT_ZHRPT010UW1 x
+                WHERE x.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+                  AND x.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+                  AND x.[TYP_LIMITU_NIEOBECN30] IN (12, 13)
+          )
+    ) AS [UD_Wyk_Zalegly_Ekwiwalent],
+
+    /* ===== EKWIWALENT BIEŻĄCY ===== */
+    (
+        SELECT TOP 1 s.[WYKORZYSTANIE_EKWIWALENT_143]
+        FROM AZD.dbo.DICT_ZHRPT010UW1 s
+        WHERE s.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+          AND s.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+          AND s.[TYP_LIMITU_NIEOBECN30] IN (12, 13)
+          AND s.[ZESTAWIENIA_NA_ROK34] = (
+                SELECT MAX(x.[ZESTAWIENIA_NA_ROK34])
+                FROM AZD.dbo.DICT_ZHRPT010UW1 x
+                WHERE x.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+                  AND x.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+                  AND x.[TYP_LIMITU_NIEOBECN30] IN (12, 13)
+          )
+    ) AS [UD_Wyk_Biezacy_Ekwiwalent]
+
+FROM Base b;
