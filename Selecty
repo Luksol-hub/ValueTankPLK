@@ -220,52 +220,127 @@ ORDER BY
 -----------------------------------------------------------------------------------------------------------
 
 
-
-
-	WITH Agregaty AS (
+WITH Base AS (
     SELECT
-        NUMER_OSOBOWY0                    AS FK_Numer_Osobowy,
-        YEAR(DATA_W_OKRESIE38)           AS Rok,
-        MONTH(DATA_W_OKRESIE38)          AS Miesiąc,
-        OPIS_NIEOBECNOSCI32              AS Rodzaj_Nieobecnosci,
-        SUM(GODZINY_W_OKRESIE42)         AS Suma_Godzin
-    FROM [AZD].[dbo].[DICT_ZHRPT009UWUDPN1]
+        t.[NUMER_OSOBOWY0],
+        t.[ROKMIESIAC46],
+        t.[KOD_DZIALALN_PODST29]
+    FROM [AZD].[dbo].[DICT_ZHRPT010UW1] t
+    WHERE EXISTS (
+            SELECT 1
+            FROM [AZD].[dbo].[DICT_ZHRPT010UW1] w
+            WHERE w.[NUMER_OSOBOWY0] = t.[NUMER_OSOBOWY0]
+              AND w.[ZESTAWIENIA_NA_ROK34] IS NOT NULL
+              AND w.[WYMIAR_NA_PIERWSZY_STYCZNIA40] > 0
+    )
     GROUP BY
-        NUMER_OSOBOWY0,
-        YEAR(DATA_W_OKRESIE38),
-        MONTH(DATA_W_OKRESIE38),
-        OPIS_NIEOBECNOSCI32
-),
-Flagi AS (
-    SELECT
-        FK_Numer_Osobowy,
-        Rok,
-        Miesiąc,
-        CASE
-            WHEN COUNT(*) > 1 THEN 1
-            ELSE 0
-        END AS Miesiac_Przejsciowy
-    FROM Agregaty
-    GROUP BY
-        FK_Numer_Osobowy,
-        Rok,
-        Miesiąc
+        t.[NUMER_OSOBOWY0],
+        t.[ROKMIESIAC46],
+        t.[KOD_DZIALALN_PODST29]
 )
+
 SELECT
-    a.FK_Numer_Osobowy,
-    a.Rok,
-    a.Miesiąc,
-    a.Rodzaj_Nieobecnosci,
-    a.Suma_Godzin                              AS Godziny,
-    a.Suma_Godzin / 8.0                        AS Dni,
-    f.Miesiac_Przejsciowy
-FROM Agregaty a
-JOIN Flagi f
-  ON f.FK_Numer_Osobowy = a.FK_Numer_Osobowy
- AND f.Rok = a.Rok
- AND f.Miesiąc = a.Miesiąc
+    CAST(b.[NUMER_OSOBOWY0] AS BIGINT) AS [Numer osobowy],
+    b.[ROKMIESIAC46]                   AS [Rok-miesiąc],
+    b.[KOD_DZIALALN_PODST29]           AS [Kod działaln. podst.],
+
+    /* URLOP ZALEGŁY */
+    (
+        SELECT TOP 1 s.[WYMIAR_NA_PIERWSZY_STYCZNIA40]
+        FROM [AZD].[dbo].[DICT_ZHRPT010UW1] s
+        WHERE s.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+          AND s.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+          AND s.[TYP_LIMITU_NIEOBECN30] IN (88,61,27,22,20)
+          AND s.[ZESTAWIENIA_NA_ROK34] = (
+                SELECT MAX(x.[ZESTAWIENIA_NA_ROK34]) - 1
+                FROM [AZD].[dbo].[DICT_ZHRPT010UW1] x
+                WHERE x.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+                  AND x.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+                  AND x.[TYP_LIMITU_NIEOBECN30] IN (88,61,27,22,20)
+          )
+    ) AS [URLOP ZALEGŁY],
+
+    /* URLOP BIEŻĄCY */
+    (
+        SELECT TOP 1 s.[WYMIAR_NA_PIERWSZY_STYCZNIA40]
+        FROM [AZD].[dbo].[DICT_ZHRPT010UW1] s
+        WHERE s.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+          AND s.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+          AND s.[TYP_LIMITU_NIEOBECN30] IN (88,61,27,22,20)
+          AND s.[ZESTAWIENIA_NA_ROK34] = (
+                SELECT MAX(x.[ZESTAWIENIA_NA_ROK34])
+                FROM [AZD].[dbo].[DICT_ZHRPT010UW1] x
+                WHERE x.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+                  AND x.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+                  AND x.[TYP_LIMITU_NIEOBECN30] IN (88,61,27,22,20)
+          )
+    ) AS [URLOP BIEŻĄCY],
+
+    /* WYKORZYSTANIE ZALEGŁY */
+    (
+        SELECT TOP 1 s.[WYKORZYSTANIE_NATURA_142]
+        FROM [AZD].[dbo].[DICT_ZHRPT010UW1] s
+        WHERE s.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+          AND s.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+          AND s.[TYP_LIMITU_NIEOBECN30] IN (88,61,27,22,20)
+          AND s.[ZESTAWIENIA_NA_ROK34] = (
+                SELECT MAX(x.[ZESTAWIENIA_NA_ROK34]) - 1
+                FROM [AZD].[dbo].[DICT_ZHRPT010UW1] x
+                WHERE x.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+                  AND x.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+                  AND x.[TYP_LIMITU_NIEOBECN30] IN (88,61,27,22,20)
+          )
+    ) AS [wykorzystanie_URLOP ZALEGŁY],
+
+    /* WYKORZYSTANIE BIEŻĄCY */
+    (
+        SELECT TOP 1 s.[WYKORZYSTANIE_NATURA_142]
+        FROM [AZD].[dbo].[DICT_ZHRPT010UW1] s
+        WHERE s.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+          AND s.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+          AND s.[TYP_LIMITU_NIEOBECN30] IN (88,61,27,22,20)
+          AND s.[ZESTAWIENIA_NA_ROK34] = (
+                SELECT MAX(x.[ZESTAWIENIA_NA_ROK34])
+                FROM [AZD].[dbo].[DICT_ZHRPT010UW1] x
+                WHERE x.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+                  AND x.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+                  AND x.[TYP_LIMITU_NIEOBECN30] IN (88,61,27,22,20)
+          )
+    ) AS [wykorzystanie_URLOP BIEŻĄCY],
+
+    /* EKWIWALENT ZALEGŁY */
+    (
+        SELECT TOP 1 s.[WYKORZYSTANIE_EKWIWALENT_143]
+        FROM [AZD].[dbo].[DICT_ZHRPT010UW1] s
+        WHERE s.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+          AND s.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+          AND s.[TYP_LIMITU_NIEOBECN30] IN (88,61,27,22,20)
+          AND s.[ZESTAWIENIA_NA_ROK34] = (
+                SELECT MAX(x.[ZESTAWIENIA_NA_ROK34]) - 1
+                FROM [AZD].[dbo].[DICT_ZHRPT010UW1] x
+                WHERE x.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+                  AND x.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+                  AND x.[TYP_LIMITU_NIEOBECN30] IN (88,61,27,22,20)
+          )
+    ) AS [ekwiwalent_URLOP ZALEGŁY],
+
+    /* EKWIWALENT BIEŻĄCY */
+    (
+        SELECT TOP 1 s.[WYKORZYSTANIE_EKWIWALENT_143]
+        FROM [AZD].[dbo].[DICT_ZHRPT010UW1] s
+        WHERE s.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+          AND s.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+          AND s.[TYP_LIMITU_NIEOBECN30] IN (88,61,27,22,20)
+          AND s.[ZESTAWIENIA_NA_ROK34] = (
+                SELECT MAX(x.[ZESTAWIENIA_NA_ROK34])
+                FROM [AZD].[dbo].[DICT_ZHRPT010UW1] x
+                WHERE x.[NUMER_OSOBOWY0] = b.[NUMER_OSOBOWY0]
+                  AND x.[ROKMIESIAC46]   = b.[ROKMIESIAC46]
+                  AND x.[TYP_LIMITU_NIEOBECN30] IN (88,61,27,22,20)
+          )
+    ) AS [ekwiwalent_URLOP BIEŻĄCY]
+
+FROM Base b
 ORDER BY
-    a.FK_Numer_Osobowy,
-    a.Rok,
-    a.Miesiąc,
-    a.Rodzaj_Nieobecnosci;
+    b.[NUMER_OSOBOWY0],
+    b.[ROKMIESIAC46];
