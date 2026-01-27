@@ -512,8 +512,8 @@ SELECT
     CAST(s.STAN_NA_DZIEN72 AS date) AS Data_Stanu,
     CAST(s.Miesiac AS date) AS Miesiac,
 
-    /* =====================================================
-       KLUCZ SKLEJANY (JEDYNA ZMIANA)
+   /* =====================================================
+       KLUCZE SKLEJANE
        ===================================================== */
     CAST(
         CONCAT(
@@ -521,7 +521,15 @@ SELECT
             FORMAT(YEAR(s.STAN_NA_DZIEN72), '0000'),
             FORMAT(MONTH(s.STAN_NA_DZIEN72), '00')
         ) AS BIGINT
-    ) AS FK_Pracownik_Miesiac_Key,
+    ) AS Pracownik_Key,
+
+    CAST(
+        CONCAT(
+            s.POZIOM_6_ID55,
+            FORMAT(YEAR(s.STAN_NA_DZIEN72), '0000'),
+            FORMAT(MONTH(s.STAN_NA_DZIEN72), '00')
+        ) AS BIGINT
+    ) AS Struktura_Key,
 
     TRY_CAST(s.NR_OSOB0 AS bigint) AS FK_Numer_Osobowy,
     TRY_CAST(s.POZIOM_6_ID55 AS bigint) AS FK_Poziom6_ID,
@@ -679,7 +687,6 @@ CROSS APPLY (
 ) a
 
 WHERE s.rn_miesiac = 1;
-
 
 
 
