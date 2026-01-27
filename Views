@@ -295,6 +295,24 @@ GO
 ;CREATE OR ALTER VIEW dbo.BI_F_Zatrudnienie_Przecietne
 AS
 SELECT
+   -- =================================================
+    -- KLUCZE TECHNICZNE (DODANE)
+    -- =================================================
+    CAST(
+        CONCAT(
+            TRY_CAST(r.NUMER_PERSONALNY7 AS bigint),
+            TRY_CAST(r.ROK1 AS bigint),
+            FORMAT(TRY_CAST(r.MIESIAC2 AS int), '00')
+        ) AS bigint
+    ) AS Pracownik_Key,
+
+    CAST(
+        CONCAT(
+            TRY_CAST(r.JEDNOSTKA_ORGANIZACYJNA_P6_ID23 AS bigint),
+            TRY_CAST(r.ROK1 AS bigint),
+            FORMAT(TRY_CAST(r.MIESIAC2 AS int), '00')
+        ) AS bigint
+    ) AS Struktura_Key,
     -- wyliczenia
     x.BRANZA_AUTO,
     y.STANOWISKO_AUTO,
@@ -454,7 +472,6 @@ CROSS APPLY (
 WHERE
     r.JEDNOSTKA_ORGANIZACYJNA_P6_ID23 IS NOT NULL;
 GO
-
 
 -----------------------------------------------------------------------------------------------------------------------------------------------
 
