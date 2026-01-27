@@ -999,11 +999,11 @@ GO
                                     CZAS PRACY
 -----------------------------------------------------------------------------------------------------------------------------------------------
 
-CREATE OR ALTER VIEW dbo.Czas_pracy
+CREATE OR ALTER VIEW dbo.BI_Czas_Pracy
 AS
 WITH
 -- =====================================================
--- 1️⃣ NADGODZINY
+-- 1️⃣ NADGODZINY – ŹRÓDŁO
 -- =====================================================
 src_godziny AS
 (
@@ -1029,6 +1029,7 @@ src_godziny AS
         t.POZIOM_3_DLUGA_NAZWA28,
         t.PODOBSZAR_KADROWY26,
         t.KOD_DZIALALNOSCI_PODST33,
+        t.POZIOM_6_ID15,
 
         czy_stazysta =
             CASE
@@ -1049,6 +1050,9 @@ src_godziny AS
       AND t.KOD_NBOB2 <> 901
 ),
 
+-- =====================================================
+-- 2️⃣ DEDUPLIKACJA
+-- =====================================================
 dedup_godziny AS
 (
     SELECT *
@@ -1071,12 +1075,17 @@ dedup_godziny AS
     WHERE rn = 1
 ),
 
+-- =====================================================
+-- 3️⃣ AGREGACJA MIESIĘCZNA NADGODZIN
+-- =====================================================
 godziny_month_sum AS
 (
     SELECT
         FK_Numer_Osobowy,
         Rok     = YEAR(DzienRozliczeniowy),
         Miesiac = MONTH(DzienRozliczeniowy),
+
+        POZIOM_6_ID15,
 
         Obszar_Kadrowy    = OBSZAR_KADROWY19,
         Poziom3_Nazwa     = POZIOM_3_DLUGA_NAZWA28,
@@ -1087,8 +1096,10 @@ godziny_month_sum AS
             SUM(GODZ7)
             + SUM(
                 CASE
-                    WHEN DzienRozliczeniowy = '2025-03-30' THEN -1
-                    WHEN DzienRozliczeniowy = '2025-10-26' THEN  1
+                    -- zmiana czasu w MARCU
+                    WHEN DzienRozliczeniowy
+                         = DATEFROMPARTS(YEAR(DzienRozliczeniowy), 3, 30)
+                        THEN -1
                     ELSE 0
                 END
             )
@@ -1097,6 +1108,7 @@ godziny_month_sum AS
         FK_Numer_Osobowy,
         YEAR(DzienRozliczeniowy),
         MONTH(DzienRozliczeniowy),
+        POZIOM_6_ID15,
         OBSZAR_KADROWY19,
         POZIOM_3_DLUGA_NAZWA28,
         PODOBSZAR_KADROWY26,
@@ -1104,7 +1116,23 @@ godziny_month_sum AS
 ),
 
 -- =====================================================
--- 2️⃣ NIEOBECNOŚCI
+-- 4️⃣ ZMIANA CZASU – PAŹDZIERNIK
+-- =====================================================
+zmiana_czasu AS
+(
+    SELECT
+        z.NUMER_OSOBOWY0 AS FK_Numer_Osobowy,
+        Godziny_Zmiany_Czasu =
+            SUM(z.DODATEK_ZMIANA_CZASU_252610202553)
+    FROM dbo.DICT_ZMIANACZASUGODZINY1 z
+    WHERE z.current_flag = 'Y'
+      AND z.DODATEK_ZMIANA_CZASU_252610202553 > 0
+    GROUP BY
+        z.NUMER_OSOBOWY0
+),
+
+-- =====================================================
+-- 5️⃣ NIEOBECNOŚCI
 -- =====================================================
 nieob_src AS
 (
@@ -1154,7 +1182,7 @@ nieob_month_sum AS
 )
 
 -- =====================================================
--- 3️⃣ FINAL
+-- 6️⃣ FINAL
 -- =====================================================
 SELECT
     Pracownik_Key =
@@ -1166,11 +1194,27 @@ SELECT
             ) AS BIGINT
         ),
 
+    Struktura_Key =
+        CAST(
+            CONCAT(
+                CAST(g.POZIOM_6_ID15 AS BIGINT),
+                FORMAT(g.Rok, '0000'),
+                FORMAT(g.Miesiac, '00')
+            ) AS BIGINT
+        ),
+
     g.FK_Numer_Osobowy,
     g.Rok,
     g.Miesiac,
 
-    g.Godziny_Nadliczbowe,
+    Godziny_Nadliczbowe =
+        g.Godziny_Nadliczbowe
+        + CASE
+              WHEN g.Miesiac = 10
+                   THEN ISNULL(zc.Godziny_Zmiany_Czasu, 0)
+              ELSE 0
+          END,
+
     ISNULL(n.Choroby, 0)   AS Choroby,
     ISNULL(n.Szkolenia, 0) AS Szkolenia,
 
@@ -1179,12 +1223,13 @@ SELECT
     g.Podobszar_Kadrowy,
     g.Kod_Dzialalnosci
 FROM godziny_month_sum g
+LEFT JOIN zmiana_czasu zc
+    ON zc.FK_Numer_Osobowy = g.FK_Numer_Osobowy
 LEFT JOIN nieob_month_sum n
     ON  n.FK_Numer_Osobowy = g.FK_Numer_Osobowy
     AND n.Rok             = g.Rok
     AND n.Miesiac         = g.Miesiac;
 GO
-
 
 -----------------------------------------------------------------------------------------------------------------------------------------------
                                    WYNAGRODZENIA
