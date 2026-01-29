@@ -1412,7 +1412,7 @@ LEFT JOIN Stan s
 
 
 -----------------------------------------------------------------------------------------------------------------------------------------------
-                                    CZAS PRACY + Final
+                          --          CZAS PRACY + Final
 -----------------------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -1535,115 +1535,166 @@ nieob_month_sum AS (
 ),
 
 /* =====================================================
-   6️⃣ URLOPY WYPOCZYNKOWE – 1:1
+   6️⃣ URLOPY WYPOCZYNKOWE – ZOPTYMALIZOWANE
 ===================================================== */
+base_data_uw AS (
+    SELECT DISTINCT 
+        NUMER_OSOBOWY0, 
+        ROKMIESIAC46
+    FROM AZD.dbo.DICT_ZHRPT010UW1
+),
+max_zestawienia_uw AS (
+    SELECT 
+        NUMER_OSOBOWY0,
+        ROKMIESIAC46,
+        TYP_LIMITU_NIEOBECN30,
+        MAX(ZESTAWIENIA_NA_ROK34) AS max_rok
+    FROM AZD.dbo.DICT_ZHRPT010UW1
+    WHERE TYP_LIMITU_NIEOBECN30 IN (88,61,27,22,21,20)
+    GROUP BY NUMER_OSOBOWY0, ROKMIESIAC46, TYP_LIMITU_NIEOBECN30
+),
+uw_data AS (
+    SELECT
+        s.NUMER_OSOBOWY0,
+        s.ROKMIESIAC46,
+        s.TYP_LIMITU_NIEOBECN30,
+        s.ZESTAWIENIA_NA_ROK34,
+        s.WYMIAR_NA_PIERWSZY_STYCZNIA40,
+        s.WYKORZYSTANIE_NATURA_142,
+        s.WYKORZYSTANIE_EKWIWALENT_143,
+        m.max_rok
+    FROM AZD.dbo.DICT_ZHRPT010UW1 s
+    INNER JOIN max_zestawienia_uw m 
+        ON s.NUMER_OSOBOWY0 = m.NUMER_OSOBOWY0
+        AND s.ROKMIESIAC46 = m.ROKMIESIAC46
+        AND s.TYP_LIMITU_NIEOBECN30 = m.TYP_LIMITU_NIEOBECN30
+    WHERE s.TYP_LIMITU_NIEOBECN30 IN (88,61,27,22,21,20)
+      AND s.ZESTAWIENIA_NA_ROK34 IN (m.max_rok, m.max_rok - 1)
+),
+rap_09_uw AS (
+    SELECT 
+        r.NUMER_OSOBOWY0,
+        r.ROKMIESIAC45,
+        SUM(r.GODZINY_W_OKRESIE42) AS suma_godzin
+    FROM AZD.dbo.DICT_ZHRPT009UWUDPN1 r
+    WHERE r.RODZ_NIEOBOBECN31 IN ('UWN','UWN1','UWN2','UWN3','UK','UR','UOR','UWT','UW','UW1','UW2','UW3','UWZ','UWZ1','UWZ2','UWZ3','UOSZ')
+    GROUP BY r.NUMER_OSOBOWY0, r.ROKMIESIAC45
+),
 uw_month AS (
     SELECT
         CAST(b.NUMER_OSOBOWY0 AS BIGINT) AS FK_Numer_Osobowy,
-        CAST(LEFT(b.ROKMIESIAC46,4) AS int)  AS Rok,
+        CAST(LEFT(b.ROKMIESIAC46,4) AS int) AS Rok,
         CAST(RIGHT(b.ROKMIESIAC46,2) AS int) AS Miesiac,
+        
+        MAX(CASE WHEN u.TYP_LIMITU_NIEOBECN30 IN (88,61,27,22,21,20) AND u.ZESTAWIENIA_NA_ROK34 = u.max_rok - 1 THEN u.WYMIAR_NA_PIERWSZY_STYCZNIA40 END) AS UW_Limit_Zalegly,
+        MAX(CASE WHEN u.TYP_LIMITU_NIEOBECN30 IN (88,61,27,22,21,20) AND u.ZESTAWIENIA_NA_ROK34 = u.max_rok THEN u.WYMIAR_NA_PIERWSZY_STYCZNIA40 END) + ISNULL(r.suma_godzin, 0) - ISNULL(MAX(CASE WHEN u.TYP_LIMITU_NIEOBECN30 IN (88,61,27,22,21,20) AND u.ZESTAWIENIA_NA_ROK34 = u.max_rok THEN u.WYKORZYSTANIE_NATURA_142 END), 0) AS UW_Limit_Biezacy,
+        MAX(CASE WHEN u.TYP_LIMITU_NIEOBECN30 IN (88,61,27,22,21,20) AND u.ZESTAWIENIA_NA_ROK34 = u.max_rok - 1 THEN u.WYKORZYSTANIE_NATURA_142 END) AS UW_Wyk_Zalegly_Natura,
+        ISNULL(r.suma_godzin, 0) AS UW_Wyk_Biezacy_Natura,
+        MAX(CASE WHEN u.TYP_LIMITU_NIEOBECN30 IN (88,61,27,22,21,20) AND u.ZESTAWIENIA_NA_ROK34 = u.max_rok - 1 THEN u.WYKORZYSTANIE_EKWIWALENT_143 END) AS UW_Wyk_Zalegly_Ekwiwalent,
+        MAX(CASE WHEN u.TYP_LIMITU_NIEOBECN30 IN (88,61,27,22,21,20) AND u.ZESTAWIENIA_NA_ROK34 = u.max_rok THEN u.WYKORZYSTANIE_EKWIWALENT_143 END) AS UW_Wyk_Biezacy_Ekwiwalent,
+        r.suma_godzin AS UW_wykorzystanie_rap_09
 
-        /* --- TU JEST DOKŁADNIE TWÓJ SELECT UW --- */
-        /* (bez zmian, bez skrótów) */
+    FROM base_data_uw b
+    LEFT JOIN uw_data u 
+        ON b.NUMER_OSOBOWY0 = u.NUMER_OSOBOWY0 
+        AND b.ROKMIESIAC46 = u.ROKMIESIAC46
+    LEFT JOIN rap_09_uw r
+        ON b.NUMER_OSOBOWY0 = r.NUMER_OSOBOWY0
+        AND b.ROKMIESIAC46 = r.ROKMIESIAC45
+    GROUP BY 
+        b.NUMER_OSOBOWY0,
+        b.ROKMIESIAC46,
+        r.suma_godzin
+),
 
-        /* URLOP ZALEGŁY */
-        (
-            SELECT TOP 1 s.WYMIAR_NA_PIERWSZY_STYCZNIA40
-            FROM AZD.dbo.DICT_ZHRPT010UW1 s
-            WHERE s.NUMER_OSOBOWY0 = b.NUMER_OSOBOWY0
-              AND s.ROKMIESIAC46   = b.ROKMIESIAC46
-              AND s.TYP_LIMITU_NIEOBECN30 IN (88,61,27,22,20)
-              AND s.ZESTAWIENIA_NA_ROK34 = (
-                    SELECT MAX(x.ZESTAWIENIA_NA_ROK34) - 1
-                    FROM AZD.dbo.DICT_ZHRPT010UW1 x
-                    WHERE x.NUMER_OSOBOWY0 = b.NUMER_OSOBOWY0
-                      AND x.ROKMIESIAC46   = b.ROKMIESIAC46
-                      AND x.TYP_LIMITU_NIEOBECN30 IN (88,61,27,22,20)
-              )
-        ) AS UW_Limit_Zalegly,
+/* =====================================================
+   7️⃣ URLOPY DODATKOWE – ZOPTYMALIZOWANE
+===================================================== */
+base_data_ud AS (
+    SELECT
+        t.[NUMER_OSOBOWY0],
+        t.[ROKMIESIAC46],
+        t.[KOD_DZIALALN_PODST29]
+    FROM [AZD].[dbo].[DICT_ZHRPT010UW1] t
+    WHERE EXISTS (
+        SELECT 1
+        FROM [AZD].[dbo].[DICT_ZHRPT010UW1] w
+        WHERE w.[NUMER_OSOBOWY0] = t.[NUMER_OSOBOWY0]
+          AND w.[ZESTAWIENIA_NA_ROK34] IS NOT NULL
+          AND w.[WYMIAR_NA_PIERWSZY_STYCZNIA40] > 0
+          AND w.[TYP_LIMITU_NIEOBECN30] IN (12, 13)
+    )
+    GROUP BY
+        t.[NUMER_OSOBOWY0],
+        t.[ROKMIESIAC46],
+        t.[KOD_DZIALALN_PODST29]
+),
+max_zestawienia_ud AS (
+    SELECT 
+        NUMER_OSOBOWY0,
+        ROKMIESIAC46,
+        TYP_LIMITU_NIEOBECN30,
+        MAX(ZESTAWIENIA_NA_ROK34) AS max_rok
+    FROM AZD.dbo.DICT_ZHRPT010UW1
+    WHERE TYP_LIMITU_NIEOBECN30 IN (12, 13)
+    GROUP BY NUMER_OSOBOWY0, ROKMIESIAC46, TYP_LIMITU_NIEOBECN30
+),
+ud_data AS (
+    SELECT
+        s.NUMER_OSOBOWY0,
+        s.ROKMIESIAC46,
+        s.TYP_LIMITU_NIEOBECN30,
+        s.ZESTAWIENIA_NA_ROK34,
+        s.WYMIAR_NA_PIERWSZY_STYCZNIA40,
+        s.WYKORZYSTANIE_NATURA_142,
+        s.WYKORZYSTANIE_EKWIWALENT_143,
+        m.max_rok
+    FROM AZD.dbo.DICT_ZHRPT010UW1 s
+    INNER JOIN max_zestawienia_ud m 
+        ON s.NUMER_OSOBOWY0 = m.NUMER_OSOBOWY0
+        AND s.ROKMIESIAC46 = m.ROKMIESIAC46
+        AND s.TYP_LIMITU_NIEOBECN30 = m.TYP_LIMITU_NIEOBECN30
+    WHERE s.TYP_LIMITU_NIEOBECN30 IN (12, 13)
+      AND s.ZESTAWIENIA_NA_ROK34 IN (m.max_rok, m.max_rok - 1)
+),
+rap_09_ud AS (
+    SELECT 
+        r.NUMER_OSOBOWY0,
+        r.ROKMIESIAC45,
+        SUM(r.GODZINY_W_OKRESIE42) AS suma_godzin
+    FROM AZD.dbo.DICT_ZHRPT009UWUDPN1 r
+    WHERE r.RODZ_NIEOBOBECN31 IN ('UT','UT1','UT2','UT3')
+    GROUP BY r.NUMER_OSOBOWY0, r.ROKMIESIAC45
+),
+ud_month AS (
+    SELECT
+        CAST(b.[NUMER_OSOBOWY0] AS BIGINT) AS FK_Numer_Osobowy,
+        CAST(LEFT(b.ROKMIESIAC46,4) AS int) AS Rok,
+        CAST(RIGHT(b.ROKMIESIAC46,2) AS int) AS Miesiac,
+        
+        MAX(CASE WHEN u.TYP_LIMITU_NIEOBECN30 IN (12, 13) AND u.ZESTAWIENIA_NA_ROK34 = u.max_rok - 1 THEN u.WYMIAR_NA_PIERWSZY_STYCZNIA40 END) AS UD_Limit_Zalegly,
+        MAX(CASE WHEN u.TYP_LIMITU_NIEOBECN30 IN (12, 13) AND u.ZESTAWIENIA_NA_ROK34 = u.max_rok THEN u.WYMIAR_NA_PIERWSZY_STYCZNIA40 END) + ISNULL(r.suma_godzin, 0) - ISNULL(MAX(CASE WHEN u.TYP_LIMITU_NIEOBECN30 IN (12, 13) AND u.ZESTAWIENIA_NA_ROK34 = u.max_rok THEN u.WYKORZYSTANIE_NATURA_142 END), 0) AS UD_Limit_Biezacy,
+        MAX(CASE WHEN u.TYP_LIMITU_NIEOBECN30 IN (12, 13) AND u.ZESTAWIENIA_NA_ROK34 = u.max_rok - 1 THEN u.WYKORZYSTANIE_NATURA_142 END) AS UD_Wyk_Zalegly_Natura,
+        ISNULL(r.suma_godzin, 0) AS UD_Wyk_Biezacy_Natura,
+        MAX(CASE WHEN u.TYP_LIMITU_NIEOBECN30 IN (12, 13) AND u.ZESTAWIENIA_NA_ROK34 = u.max_rok - 1 THEN u.WYKORZYSTANIE_EKWIWALENT_143 END) AS UD_Wyk_Zalegly_Ekwiwalent,
+        MAX(CASE WHEN u.TYP_LIMITU_NIEOBECN30 IN (12, 13) AND u.ZESTAWIENIA_NA_ROK34 = u.max_rok THEN u.WYKORZYSTANIE_EKWIWALENT_143 END) AS UD_Wyk_Biezacy_Ekwiwalent,
+        r.suma_godzin AS UD_wykorzystanie_rap_09
 
-        (
-            SELECT TOP 1 s.WYMIAR_NA_PIERWSZY_STYCZNIA40
-            FROM AZD.dbo.DICT_ZHRPT010UW1 s
-            WHERE s.NUMER_OSOBOWY0 = b.NUMER_OSOBOWY0
-              AND s.ROKMIESIAC46   = b.ROKMIESIAC46
-              AND s.TYP_LIMITU_NIEOBECN30 IN (88,61,27,22,20)
-              AND s.ZESTAWIENIA_NA_ROK34 = (
-                    SELECT MAX(x.ZESTAWIENIA_NA_ROK34)
-                    FROM AZD.dbo.DICT_ZHRPT010UW1 x
-                    WHERE x.NUMER_OSOBOWY0 = b.NUMER_OSOBOWY0
-                      AND x.ROKMIESIAC46   = b.ROKMIESIAC46
-                      AND x.TYP_LIMITU_NIEOBECN30 IN (88,61,27,22,20)
-              )
-        ) AS UW_Limit_Biezacy,
-
-        (
-            SELECT TOP 1 s.WYKORZYSTANIE_NATURA_142
-            FROM AZD.dbo.DICT_ZHRPT010UW1 s
-            WHERE s.NUMER_OSOBOWY0 = b.NUMER_OSOBOWY0
-              AND s.ROKMIESIAC46   = b.ROKMIESIAC46
-              AND s.TYP_LIMITU_NIEOBECN30 IN (88,61,27,22,20)
-              AND s.ZESTAWIENIA_NA_ROK34 = (
-                    SELECT MAX(x.ZESTAWIENIA_NA_ROK34) - 1
-                    FROM AZD.dbo.DICT_ZHRPT010UW1 x
-                    WHERE x.NUMER_OSOBOWY0 = b.NUMER_OSOBOWY0
-                      AND x.ROKMIESIAC46   = b.ROKMIESIAC46
-                      AND x.TYP_LIMITU_NIEOBECN30 IN (88,61,27,22,20)
-              )
-        ) AS UW_Wyk_Zalegly_Natura,
-
-        (
-            SELECT TOP 1 s.WYKORZYSTANIE_NATURA_142
-            FROM AZD.dbo.DICT_ZHRPT010UW1 s
-            WHERE s.NUMER_OSOBOWY0 = b.NUMER_OSOBOWY0
-              AND s.ROKMIESIAC46   = b.ROKMIESIAC46
-              AND s.TYP_LIMITU_NIEOBECN30 IN (88,61,27,22,20)
-              AND s.ZESTAWIENIA_NA_ROK34 = (
-                    SELECT MAX(x.ZESTAWIENIA_NA_ROK34)
-                    FROM AZD.dbo.DICT_ZHRPT010UW1 x
-                    WHERE x.NUMER_OSOBOWY0 = b.NUMER_OSOBOWY0
-                      AND x.ROKMIESIAC46   = b.ROKMIESIAC46
-                      AND x.TYP_LIMITU_NIEOBECN30 IN (88,61,27,22,20)
-              )
-        ) AS UW_Wyk_Biezacy_Natura,
-
-        (
-            SELECT TOP 1 s.WYKORZYSTANIE_EKWIWALENT_143
-            FROM AZD.dbo.DICT_ZHRPT010UW1 s
-            WHERE s.NUMER_OSOBOWY0 = b.NUMER_OSOBOWY0
-              AND s.ROKMIESIAC46   = b.ROKMIESIAC46
-              AND s.TYP_LIMITU_NIEOBECN30 IN (88,61,27,22,20)
-              AND s.ZESTAWIENIA_NA_ROK34 = (
-                    SELECT MAX(x.ZESTAWIENIA_NA_ROK34) - 1
-                    FROM AZD.dbo.DICT_ZHRPT010UW1 x
-                    WHERE x.NUMER_OSOBOWY0 = b.NUMER_OSOBOWY0
-                      AND x.ROKMIESIAC46   = b.ROKMIESIAC46
-                      AND x.TYP_LIMITU_NIEOBECN30 IN (88,61,27,22,20)
-              )
-        ) AS UW_Wyk_Zalegly_Ekwiwalent,
-
-        (
-            SELECT TOP 1 s.WYKORZYSTANIE_EKWIWALENT_143
-            FROM AZD.dbo.DICT_ZHRPT010UW1 s
-            WHERE s.NUMER_OSOBOWY0 = b.NUMER_OSOBOWY0
-              AND s.ROKMIESIAC46   = b.ROKMIESIAC46
-              AND s.TYP_LIMITU_NIEOBECN30 IN (88,61,27,22,20)
-              AND s.ZESTAWIENIA_NA_ROK34 = (
-                    SELECT MAX(x.ZESTAWIENIA_NA_ROK34)
-                    FROM AZD.dbo.DICT_ZHRPT010UW1 x
-                    WHERE x.NUMER_OSOBOWY0 = b.NUMER_OSOBOWY0
-                      AND x.ROKMIESIAC46   = b.ROKMIESIAC46
-                      AND x.TYP_LIMITU_NIEOBECN30 IN (88,61,27,22,20)
-              )
-        ) AS UW_Wyk_Biezacy_Ekwiwalent
-    FROM (
-        SELECT DISTINCT NUMER_OSOBOWY0, ROKMIESIAC46
-        FROM AZD.dbo.DICT_ZHRPT010UW1
-    ) b
+    FROM base_data_ud b
+    LEFT JOIN ud_data u 
+        ON b.NUMER_OSOBOWY0 = u.NUMER_OSOBOWY0 
+        AND b.ROKMIESIAC46 = u.ROKMIESIAC46
+    LEFT JOIN rap_09_ud r
+        ON b.NUMER_OSOBOWY0 = r.NUMER_OSOBOWY0
+        AND b.ROKMIESIAC46 = r.ROKMIESIAC45
+    GROUP BY 
+        b.NUMER_OSOBOWY0,
+        b.ROKMIESIAC46,
+        r.suma_godzin
 )
 
 /* =====================================================
-   7️⃣ FINAL
+   8️⃣ FINAL
 ===================================================== */
 SELECT
     CAST(CONCAT(g.FK_Numer_Osobowy, g.Rok, FORMAT(g.Miesiac,'00')) AS BIGINT) AS Pracownik_Key,
@@ -1662,6 +1713,15 @@ SELECT
     uw.UW_Wyk_Biezacy_Natura,
     uw.UW_Wyk_Zalegly_Ekwiwalent,
     uw.UW_Wyk_Biezacy_Ekwiwalent,
+    uw.UW_wykorzystanie_rap_09,
+
+    ud.UD_Limit_Zalegly,
+    ud.UD_Limit_Biezacy,
+    ud.UD_Wyk_Zalegly_Natura,
+    ud.UD_Wyk_Biezacy_Natura,
+    ud.UD_Wyk_Zalegly_Ekwiwalent,
+    ud.UD_Wyk_Biezacy_Ekwiwalent,
+    ud.UD_wykorzystanie_rap_09,
 
     g.Kod_Dzialalnosci
 FROM godziny_month_final g
@@ -1672,5 +1732,9 @@ LEFT JOIN nieob_month_sum n
 LEFT JOIN uw_month uw
   ON uw.FK_Numer_Osobowy = g.FK_Numer_Osobowy
  AND uw.Rok = g.Rok
- AND uw.Miesiac = g.Miesiac;
+ AND uw.Miesiac = g.Miesiac
+LEFT JOIN ud_month ud
+  ON ud.FK_Numer_Osobowy = g.FK_Numer_Osobowy
+ AND ud.Rok = g.Rok
+ AND ud.Miesiac = g.Miesiac;
 GO
