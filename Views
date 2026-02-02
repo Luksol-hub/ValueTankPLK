@@ -1746,3 +1746,197 @@ LEFT JOIN ud_month ud
  AND ud.Rok = g.Rok
  AND ud.Miesiac = g.Miesiac;
 GO
+
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------
+                                   WYNAGRODZENIA +  kolumny z dodatkowymi wynagrodzeniami 
+-----------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+CREATE OR ALTER VIEW dbo.BI_F_Wynagrodzenia
+AS
+WITH Wyn AS (
+    SELECT
+        NUMERPERSONALNY3,
+
+        CAST(LEFT(DATAKSIEGOWANIA54, 4) AS int) AS Rok,
+        CAST(RIGHT(DATAKSIEGOWANIA54, 2) AS int) AS Miesiac,
+
+        CONCAT(
+            NUMERPERSONALNY3,
+            LEFT(DATAKSIEGOWANIA54, 4),
+            RIGHT(DATAKSIEGOWANIA54, 2)
+        ) AS FK_Numer_Osobowy,
+
+        OBSZARKADROWY5 AS Obszar_Kadrowy,
+        KODDZIALALNOSCI19 AS Kod_Dzialalnosci,
+
+        CASE
+            WHEN NULLIF(
+                    LTRIM(RTRIM(
+                        COALESCE(CAST(KODDZIALALNOSCI19 AS varchar(50)), '')
+                    )),
+                    ''
+                 ) IS NULL
+                THEN NULL
+            WHEN LEFT(REPLACE(KODDZIALALNOSCI19, '.', ''), 1) = '0'
+                THEN N'Administracja'
+            WHEN LEFT(REPLACE(KODDZIALALNOSCI19, '.', ''), 2) IN ('21','22','23')
+                THEN N'Utrzymanie i diagnostyka drogi kolejowej'
+            WHEN LEFT(REPLACE(KODDZIALALNOSCI19, '.', ''), 2) = '24'
+                THEN N'Utrzymanie i diagnostyka energetyki'
+            WHEN LEFT(REPLACE(KODDZIALALNOSCI19, '.', ''), 2) IN ('25','26')
+                THEN N'Utrzymanie i diagnostyka automatyki i telekomunikacji'
+            WHEN LEFT(REPLACE(KODDZIALALNOSCI19, '.', ''), 3) IN ('271','272')
+                THEN N'Inzynieria ruchu'
+            WHEN LEFT(REPLACE(KODDZIALALNOSCI19, '.', ''), 3) = '273'
+                THEN N'Dyspozytorzy'
+            WHEN LEFT(REPLACE(KODDZIALALNOSCI19, '.', ''), 1) IN ('5','6')
+                THEN N'Dzialalnosc dodatkowa'
+            ELSE NULL
+        END AS Branza_Uproszczona,
+
+        STATUSZATRUDNIENAOPIS15 AS Status_Zatrudnienia,
+        GRUPAPRACOWNICZAOPIS17 AS Grupa_Pracownikow,
+        PODGRUPAPRACOWNICZAOPIS18 AS Podgrupa_Pracownikow,
+        WYMIARETATU14 AS Wymiar_Etatu,
+
+        COALESCE(SUM(WYNAGRODZENIE_ZASADNICZE22), 0) AS Wynagrodzenie_Zasadnicze,
+        COALESCE(SUM(WYNAGR_ZA_GODZ_NADLICZB46), 0) AS Wynagrodzenie_Za_Nadgodziny,
+        COALESCE(SUM(WYNAGR_ZA_PRACE_W_PORZE_NOCNEJ35), 0) AS Wynagrodzenie_Za_Prace_Nocna,
+        COALESCE(SUM(WYNAGR_ZA_PRACE_W_NIEDZ_I_SWIETA33), 0) AS Wynagrodzenie_Za_Prace_Niedziele_Swieta,
+        COALESCE(SUM(WYNAGR_ZA_PRACE_W_WARUNKACH_SZKODL_DLA_ZDROWIA_UCIAZLIWYCH_LUB_NIEBEZP34), 0) AS Wynagrodzenie_Za_Warunki_Szkodliwe,
+        COALESCE(SUM(WYNAGR_ZA_CZAS_CHOROBY44), 0) AS Wynagrodzenie_Za_Chorobe,
+        COALESCE(SUM(PREMIE_I_NAGRODY25), 0) AS Premie_I_Nagrody,
+        COALESCE(SUM(NAGRODY_JUBILEUSZOWE28), 0) AS Nagrody_Jubileuszowe,
+        COALESCE(SUM(ODPRAWY_EMERYTALNE29), 0) AS Odprawy_Emerytalne,
+        COALESCE(SUM(EKWIWALENT_ZA_NIEWYKORZY_URLOP39), 0) AS Ekwiwalent_Za_Urlop,
+        COALESCE(SUM(POZOSTALE_WYNAGRODZENIA31), 0) AS Pozostale_Wynagrodzenia,
+        COALESCE(SUM(WYNAGRODZENIA_LIMITOWANE51), 0) AS Wynagrodzenia_Limitowane,
+        COALESCE(SUM(WYNAGRODZENIA_NIELIMITOWANE52), 0) AS Wynagrodzenia_Nielimitowane,
+        COALESCE(SUM(WYN_PRAC_ODDELEGOWANYCH_DO_ETATOWEJ_PRACY_ZWIAZKOWEJ38), 0) AS Wynagrodzenie_Za_Prace_Zwiazkowa,
+        COALESCE(SUM(WYNAGR_WYPLACONE_NA_PODST_WYROKOW_SADOWYCH_DLA_PRAC_CZYNNYCH50), 0) AS Wynagrodzenie_Z_Wyrokow_Sadowych,
+        COALESCE(SUM(WYNAGRODZENIA_OSOBOWE_RAZEM_RUBR2_DO_1124_DO_3021), 0) AS Wynagrodzenia_Osobowe,
+
+		COALESCE(SUM(DODATEK_FUNKCYJNY23), 0) AS DODATEK_FUNKCYJNY,
+        COALESCE(SUM(DODATEK_ZA_STAZ_PRACY24), 0) AS DODATEK_ZA_STAZ_PRACY,
+        COALESCE(SUM(PREMIE_I_NAGRODY_WYPLACANE_SPORADYCZNIE26), 0) AS PREMIE_I_NAGRODY_WYPLACANE_SPORADYCZNIE,
+        COALESCE(SUM(DODATEK_KM27), 0) AS DODATEK_KM,
+        COALESCE(SUM(ODPRAWY_RENTOWE30), 0) AS ODPRAWY_RENTOWE,
+        COALESCE(SUM(PREMIA_ZA_ODPRAWE_PODROZNYCH32), 0) AS PREMIA_ZA_ODPRAWE_PODROZNYCH,
+        COALESCE(SUM(DOD_ZA_JEDNOOS_OBSLUGE_TRAKCYJNA36), 0) AS DOD_ZA_JEDNOOS_OBSLUGE_TRAKCYJNA,
+        COALESCE(SUM(ODSZKODOW_ZA_SKROCONY_OKRES_WYPOWIEDZ37), 0) AS ODSZKODOW_ZA_SKROCONY_OKRES_WYPOWIEDZ,
+        COALESCE(SUM(EKWIWALENT_ZA_NIEWYKORZYSTANY_URLOP_DODATKOWY40), 0) AS EKWIWALENT_ZA_NIEWYKORZYSTANY_URLOP_DODATKOWY,
+        COALESCE(SUM(NAGRODY_PIENIEZNE_ZA_ODZNACZ_PANSTWOWE_I_RESORTOWE41), 0) AS NAGRODY_PIENIEZNE_ZA_ODZNACZ_PANSTWOWE_I_RESORTOWE,
+        COALESCE(SUM(NAGRODY_ROCZNE_DLA_CZLONKOW_ZARZADUI_ODW_CZLONKOW42), 0) AS NAGRODY_ROCZNE_DLA_CZLONKOW_ZARZADUI_ODW_CZLONKOW,
+        COALESCE(SUM(INNE_WYNAGR43), 0) AS INNE_WYNAGR,
+        COALESCE(SUM(EKWIWALENT_PIEN_ZA_WEGIEL45), 0) AS EKWIWALENT_PIEN_ZA_WEGIEL,
+        COALESCE(SUM(DODATEK_WYROWN_PRZYSL_PRAC_NA_PODST_USTZ_DN13032003R47), 0) AS DODATEK_WYROWN_PRZYSL_PRAC_NA_PODST_USTZ_DN13032003R,
+        COALESCE(SUM(WYNAGR_DLA_PRACOWNIKOW_WYNAGRADZ_WG_KROTNOSCI48), 0) AS WYNAGR_DLA_PRACOWNIKOW_WYNAGRADZ_WG_KROTNOSCI,
+        COALESCE(SUM(PREMIA_KWART_DLA_PRACOWNIKOW_WYNAGRADZ_WG_KROTNOSCI49), 0) AS PREMIA_KWART_DLA_PRACOWNIKOW_WYNAGRADZ_WG_KROTNOSCI
+
+
+    FROM DICT_WYNAGRODZENIABO1
+    WHERE
+        WYSZCZEGOLNIENIE0 IS NOT NULL
+        AND WYSZCZEGOLNIENIE0 <> '10 INŻYNIERIA RUCHU'
+		AND STATUSZATRUDNIENAOPIS15 <> 'Zwolniony' 
+        AND NOT (
+            WYSZCZEGOLNIENIE0 = '02 ZESPÓŁ UTRZYMANIA DROGI KOLEJOWEJ'
+            AND KODDZIALALNOSCI19 = '2.2.1'
+        )
+    GROUP BY
+        NUMERPERSONALNY3,
+        CAST(LEFT(DATAKSIEGOWANIA54, 4) AS int),
+        CAST(RIGHT(DATAKSIEGOWANIA54, 2) AS int),
+        CONCAT(
+            NUMERPERSONALNY3,
+            LEFT(DATAKSIEGOWANIA54, 4),
+            RIGHT(DATAKSIEGOWANIA54, 2)
+        ),
+        OBSZARKADROWY5,
+        KODDZIALALNOSCI19,
+        STATUSZATRUDNIENAOPIS15,
+        GRUPAPRACOWNICZAOPIS17,
+        PODGRUPAPRACOWNICZAOPIS18,
+        WYMIARETATU14
+),
+Stan AS (
+    SELECT
+        LTRIM(RTRIM(CAST(NR_OSOB0 AS varchar(50)))) AS NR_OSOB_norm,
+        YEAR(STAN_NA_DZIEN72) AS Rok,
+        MONTH(STAN_NA_DZIEN72) AS Miesiac,
+        MAX(POZIOM_6_ID55) AS POZIOM_6_ID55
+    FROM dbo.DICT_STANZATRUDNIENIANADZIEN1
+    GROUP BY
+        LTRIM(RTRIM(CAST(NR_OSOB0 AS varchar(50)))),
+        YEAR(STAN_NA_DZIEN72),
+        MONTH(STAN_NA_DZIEN72)
+)
+SELECT
+	w.NUMERPERSONALNY3 AS Numer_Personalny,
+    w.Rok,
+    w.Miesiac,
+    w.FK_Numer_Osobowy,
+
+    CASE
+        WHEN s.POZIOM_6_ID55 IS NULL
+            THEN 'Brak poziomu 6'
+        ELSE
+            CONCAT(
+                CAST(s.POZIOM_6_ID55 AS varchar(50)),
+                RIGHT('0000' + CAST(w.Rok AS varchar(4)), 4),
+                RIGHT('00' + CAST(w.Miesiac AS varchar(2)), 2)
+            )
+    END AS FK_Poziom6_ID,
+
+    w.Obszar_Kadrowy,
+    w.Kod_Dzialalnosci,
+    w.Branza_Uproszczona,
+    w.Status_Zatrudnienia,
+    w.Grupa_Pracownikow,
+    w.Podgrupa_Pracownikow,
+    w.Wymiar_Etatu,
+
+    w.Wynagrodzenie_Zasadnicze,
+    w.Wynagrodzenie_Za_Nadgodziny,
+    w.Wynagrodzenie_Za_Prace_Nocna,
+    w.Wynagrodzenie_Za_Prace_Niedziele_Swieta,
+    w.Wynagrodzenie_Za_Warunki_Szkodliwe,
+    w.Wynagrodzenie_Za_Chorobe,
+    w.Premie_I_Nagrody,
+    w.Nagrody_Jubileuszowe,
+    w.Odprawy_Emerytalne,
+    w.Ekwiwalent_Za_Urlop,
+    w.Pozostale_Wynagrodzenia,
+    w.Wynagrodzenia_Limitowane,
+    w.Wynagrodzenia_Nielimitowane,
+    w.Wynagrodzenie_Za_Prace_Zwiazkowa,
+    w.Wynagrodzenie_Z_Wyrokow_Sadowych,
+    w.Wynagrodzenia_Osobowe,
+
+	w.DODATEK_FUNKCYJNY,
+    w.DODATEK_ZA_STAZ_PRACY,
+    w.PREMIE_I_NAGRODY_WYPLACANE_SPORADYCZNIE,
+    w.DODATEK_KM,
+    w.ODPRAWY_RENTOWE,
+    w.PREMIA_ZA_ODPRAWE_PODROZNYCH,
+    w.DOD_ZA_JEDNOOS_OBSLUGE_TRAKCYJNA,
+    w.ODSZKODOW_ZA_SKROCONY_OKRES_WYPOWIEDZ,
+    w.EKWIWALENT_ZA_NIEWYKORZYSTANY_URLOP_DODATKOWY,
+    w.NAGRODY_PIENIEZNE_ZA_ODZNACZ_PANSTWOWE_I_RESORTOWE,
+    w.NAGRODY_ROCZNE_DLA_CZLONKOW_ZARZADUI_ODW_CZLONKOW,
+    w.INNE_WYNAGR,
+    w.EKWIWALENT_PIEN_ZA_WEGIEL,
+    w.DODATEK_WYROWN_PRZYSL_PRAC_NA_PODST_USTZ_DN13032003R,
+    w.WYNAGR_DLA_PRACOWNIKOW_WYNAGRADZ_WG_KROTNOSCI,
+    w.PREMIA_KWART_DLA_PRACOWNIKOW_WYNAGRADZ_WG_KROTNOSCI
+
+FROM Wyn w
+LEFT JOIN Stan s
+    ON s.NR_OSOB_norm = LTRIM(RTRIM(CAST(w.NUMERPERSONALNY3 AS varchar(50))))
+   AND s.Rok = w.Rok
+   AND s.Miesiac = w.Miesiac;
+
