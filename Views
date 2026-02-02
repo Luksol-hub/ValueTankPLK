@@ -651,7 +651,15 @@ CROSS APPLY (
             WHEN CAST(x.BRANZA_AUTO AS nvarchar(200)) LIKE N'Zespół diagnostyczny ds. naw%' THEN N'Droga kolejowa diagnostyka (kod działalności 2.1, 2.2, 2.3, 5)'
             WHEN CAST(x.BRANZA_AUTO AS nvarchar(200)) LIKE N'Zespół diagnostyczny ds. obiektów%' THEN N'Droga kolejowa diagnostyka (kod działalności 2.1, 2.2, 2.3, 5)'
 
-            WHEN CAST(x.BRANZA_AUTO AS nvarchar(200)) = N'Inżynieria ruchu' THEN N'Inżynieria ruchu'
+			 -- NOWY WARUNEK
+            WHEN CAST(x.BRANZA_AUTO AS nvarchar(200)) = N'Inżynieria ruchu'
+                 AND LOWER(COALESCE(CAST(s.STANOWISKO27 AS nvarchar(255)), N'')) LIKE N'%dyspozytor%'
+            THEN N'Dyspozytor'
+
+            -- fallback
+            WHEN CAST(x.BRANZA_AUTO AS nvarchar(200)) = N'Inżynieria ruchu'
+            THEN N'Inżynieria ruchu'
+
 
             WHEN CAST(x.BRANZA_AUTO AS nvarchar(200)) = N'Działalność dodatkowa - 6'
                 THEN N'Działaność dodatkowa (kod działalności 6)'
